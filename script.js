@@ -30,7 +30,27 @@ let boardState = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    initGame();
+    const welcomeOverlay = document.getElementById('welcome-overlay');
+    const startBtnModal = document.getElementById('start-game-modal-btn');
+
+    // تنظیمات تلگرام وب‌اپ
+    if (window.Telegram && window.Telegram.WebApp) {
+        window.Telegram.WebApp.ready();
+        window.Telegram.WebApp.expand();
+    }
+
+    // رویداد کلیک روی دکمه شروع بازی در پیام شناور
+    if (startBtnModal) {
+        startBtnModal.addEventListener('click', () => {
+            // مخفی کردن پیام خوش‌آمدگویی
+            if (welcomeOverlay) {
+                welcomeOverlay.classList.add('hidden');
+            }
+            // شروع بازی و تایمر
+            initGame();
+        });
+    }
+
     setupDrawer();
     window.addEventListener('resize', renderBoard);
 });
@@ -185,7 +205,6 @@ function handleLineClick(lineId, lineElement, type) {
     if (newSquaresCount === 0) {
         nextTurn();
     } else {
-        // اگر مربعی کامل شد، بازیکن جایزه می‌گیرد و نوبتش حفظ می‌شود + تایمرش ریست و شارژ مجدد می‌شود
         resetTimer();
         updateUI();
         renderBoard();
@@ -298,7 +317,6 @@ function updateTimerUI() {
         }
     }
 
-    // به‌روزرسانی آنی تایمر کوچک در منوی کشویی کنار نام بازیکن فعال
     const miniTimerEl = document.getElementById('active-player-timer');
     if (miniTimerEl) {
         miniTimerEl.textContent = `⏳ ${boardState.timer}s`;
