@@ -1,6 +1,6 @@
 /* ==========================================
-   DotVerse - Complete Game Logic (script.js)
-   ========================================== */
+    DotVerse - Complete Game Logic (script.js)
+    ========================================== */
 
 const PLAYER_COLORS = [
     "#38bdf8", "#ef4444", "#22c55e", "#f59e0b", "#a855f7",
@@ -16,12 +16,13 @@ const PLAYER_ANIMALS = [
     "🐝", "🦋", "🐬", "🐢", "🐿️"
 ];
 
+// دریافت ابعاد از URL یا پیش‌فرض ۵ در ۵
 const urlParams = new URLSearchParams(window.location.search);
-const gridSize = parseInt(urlParams.get('size')) || 8;
+let gridSize = parseInt(urlParams.get('size')) || 5;
 
-// فرض بر این است که آیا کاربر فعلی سازنده است یا خیر (قابل تغییر بر اساس تلگرام وب‌اپ)
+// تعیین اینکه آیا کاربر فعلی سازنده است یا خیر (قابل توسعه با اطلاعات تلگرام)
 let isCreator = true; 
-const maxPlayersLimit = 10; // سقف تعداد بازیکنان
+const maxPlayersLimit = 20; // سقف تعداد بازیکنان
 
 let boardState = {
     size: gridSize,
@@ -35,7 +36,10 @@ let boardState = {
 
 document.addEventListener('DOMContentLoaded', () => {
     const welcomeOverlay = document.getElementById('welcome-overlay');
-    const startBtnModal = document.getElementById('start-game-modal-btn');
+    const createRoomBtn = document.getElementById('create-room-btn');
+    const joinRoomBtn = document.getElementById('join-room-btn');
+    const gridSizeSelect = document.getElementById('grid-size-select');
+    const adminStartBtn = document.getElementById('admin-start-btn');
 
     // تنظیمات تلگرام وب‌اپ
     if (window.Telegram && window.Telegram.WebApp) {
@@ -43,22 +47,75 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Telegram.WebApp.expand();
     }
 
-    // مدیریت نمایش دکمه شروع بازی فقط برای سازنده
-    if (startBtnModal && welcomeOverlay) {
-        if (!isCreator) {
-            // اگر سازنده نیست، دکمه شروع را پنهان یا متن را عوض کنیم تا منتظر بماند
-            const modalContent = welcomeOverlay.querySelector('.welcome-modal');
-            if (modalContent) {
-                modalContent.querySelector('p').textContent = "لطفاً صبر کنید تا سازنده بازی را شروع کند...";
-                startBtnModal.style.display = 'none';
+    // تنظیم مقدار پیش‌فرض منوی کشویی ابعاد بر اساس مقدار فعلی
+    if (gridSizeSelect) {
+        gridSizeSelect.value = gridSize;
+    }
+
+    // اگر کاربر سازنده نباشد، دکمه ساخت اتاق را پنهان کرده و فقط اجازه پیوستن می‌دهیم
+    if (!isCreator) {
+        if (createRoomBtn) createRoomBtn.style.display = 'none';
+        if (gridSizeSelect) gridSizeSelect.disabled = true;
+    }
+
+    // کلیک روی دکمه ساخت اتاق توسط سازنده
+    if (createRoomBtn) {
+        createRoomBtn.addEventListener('click', () => {
+            if (gridSizeSelect) {
+                gridSizeSize = parseInt(gridSizeSelect.value);
+                gridSize = gridSizeSize;
+                boardState.size = gridSize;
             }
-        }
-        
-        startBtnModal.addEventListener('click', () => {
-            if (isCreator) {
-                welcomeOverlay.classList.add('hidden');
-                initGame();
+
+            // نمایش دکمه شروع بازی در پنل کشویی برای سازنده
+            if (adminStartBtn) {
+                adminStartBtn.style.display = 'block';
             }
+
+            // بستن پنجره تنظیمات و ورود به لابی / بازی
+            welcomeOverlay.classList.add('hidden');
+            initGame();
+        });
+    }
+
+    // کلیک روی دکمه پیوستن به بازی توسط شرکت‌کنندگان
+    if (joinRoomBtn) {
+        joinRoomBtn.addEventListener('click', () => {
+            if (boardState.players.length >= maxPlayersLimit) {
+                alert('ظرفیت اتاق تکمیل است!');
+                return;
+            }
+
+            // شبیه‌سازی پیوستن بازیکن جدید
+            const newPlayerId = Date.now();
+            const playerName = prompt("لطفاً نام خود را وارد کنید:", "کاربر مهمان") || "بازیکن";
+            
+            boardState.players.push({
+                id: newPlayerId,
+                name: playerName,
+                score: 0,
+                color: PLAYER_COLORS[boardState.players.length % PLAYER_COLORS.length],
+                animal: PLAYER_ANIMALS[boardState.players.length % PLAYER_ANIMALS.length]
+            });
+
+            updateUI();
+            welcomeOverlay.classList.add('hidden');
+            // تا قبل از شروع بازی توسط سازنده، تخته رندر می‌شود اما منتظر می‌ماند
+            renderBoard();
+        });
+    }
+
+    // کلیک روی دکمه شروع نهایی بازی توسط سازنده از درون منوی کشویی
+    if (adminStartBtn) {
+        adminStartBtn.addEventListener('click', () => {
+            if (!isCreator) return;
+            if (boardState.players.length === 0) {
+                alert('حداقل یک بازیکن باید در بازی حضور داشته باشد!');
+                return;
+            }
+            adminStartBtn.style.display = 'none'; // مخفی کردن دکمه پس از شروع
+            startTimer();
+            alert('بازی رسماً شروع شد! نوبت شماست.');
         });
     }
 
@@ -67,22 +124,19 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initGame() {
-    // نمونه بازیکنان اولیه (شامل خود سازنده)
-    const rawPlayers = [
-        { id: 101, name: "Abolfazl (سازنده)" },
-        { id: 102, name: "رضا" }
-    ];
-
-    boardState.players = rawPlayers.map((p, idx) => ({
-        ...p,
-        color: PLAYER_COLORS[idx % PLAYER_COLORS.length],
-        animal: PLAYER_ANIMALS[idx % PLAYER_ANIMALS.length],
-        score: 0
-    }));
+    // افزودن سازنده به عنوان بازیکن اول
+    if (boardState.players.length === 0) {
+        boardState.players.push({
+            id: 101,
+            name: "سازنده (شما)",
+            color: PLAYER_COLORS[0],
+            animal: PLAYER_ANIMALS[0],
+            score: 0
+        });
+    }
 
     updateUI();
     renderBoard();
-    startTimer();
 }
 
 // تابع حذف بازیکن توسط سازنده
@@ -269,9 +323,9 @@ function checkForCompletedSquares(player) {
                 addSquareToLine(bottomId, player, timestamp);
                 addSquareToLine(leftId, player, timestamp);
                 addSquareToLine(rightId, player, timestamp);
-          }
-      }
-  }
+            }
+        }
+    }
 
     if (count > 0) {
         updateUI();
@@ -358,9 +412,9 @@ function updateUI() {
         if (banner) banner.textContent = "بازیکنی در بازی نیست!";
     }
 
-    const drawerHeaderTitle = document.querySelector('.drawer-header h3');
-    if (drawerHeaderTitle) {
-        drawerHeaderTitle.innerHTML = `👥 بازیکنان و امتیازات (${boardState.players.length}/${maxPlayersLimit})`;
+    const playerCountSpan = document.getElementById('player-count');
+    if (playerCountSpan) {
+        playerCountSpan.textContent = boardState.players.length;
     }
 
     const listContainer = document.getElementById('players-list');
@@ -374,7 +428,6 @@ function updateUI() {
         item.className = `player-item ${isCurrent ? 'active-turn' : ''}`;
         
         let deleteBtnHtml = '';
-        // اگر کاربر سازنده باشد، دکمه ضربدر برای حذف نمایش داده می‌شود
         if (isCreator) {
             deleteBtnHtml = `<button class="remove-player-btn" onclick="removePlayer(${player.id})" title="حذف بازیکن" style="background:none; border:none; color:#ef4444; font-size:16px; cursor:pointer; margin-right:8px;">❌</button>`;
         }

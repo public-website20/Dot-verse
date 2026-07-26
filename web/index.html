@@ -23,11 +23,15 @@
         <div class="drawer-overlay" id="drawer-overlay"></div>
         <div class="side-drawer" id="side-drawer">
             <div class="drawer-header">
-                <h3>👥 بازیکنان و امتیازات</h3>
+                <h3>👥 بازیکنان و امتیازات (<span id="player-count">0</span>/20)</h3>
                 <span class="close-btn" id="drawer-close">✕</span>
             </div>
             <div class="players-list" id="players-list">
                 <!-- لیست بازیکنان به‌صورت پویا پر می‌شود -->
+            </div>
+            <!-- دکمه شروع بازی برای سازنده (فقط وقتی وارد پنل شود نمایش داده می‌شود) -->
+            <div class="drawer-footer" id="drawer-footer" style="padding: 15px; text-align: center;">
+                <button class="start-game-modal-btn" id="admin-start-btn" style="display: none; width: 100%;">شروع بازی 🚀</button>
             </div>
         </div>
 
@@ -42,16 +46,29 @@
         <!-- تایمر شناور روی صفحه -->
         <div class="floating-timer" id="floating-timer">⏳ 20s</div>
 
-        <!-- کادر پیام شناور و دکمه شروع بازی -->
+        <!-- کادر ساخت بازی، انتخاب ابعاد و پیوستن به بازی -->
         <div class="overlay" id="welcome-overlay">
             <div class="welcome-modal">
-                <h2>👋 به DotVerse خوش آمدید!</h2>
-                <p>سلام! برای شروع بازی آنلاین آماده‌اید؟ روی دکمه زیر کلیک کنید تا بازی آغاز شود و وارد نبرد نقطه و خط شوید!</p>
-                <button class="start-game-modal-btn" id="start-game-modal-btn">شروع بازی 🎮</button>
+                <h2>🎮 تنظیمات بازی DotVerse</h2>
+                <p>لطفاً ابعاد صفحه بازی را انتخاب کنید و وارد بازی شوید:</p>
+                
+                <!-- بخش انتخاب ابعاد صفحه -->
+                <div class="form-group" style="margin: 15px 0; text-align: right;">
+                    <label for="grid-size-select" style="display: block; margin-bottom: 5px; font-weight: bold;">انتخاب ابعاد شبکه:</label>
+                    <select id="grid-size-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: inherit;">
+                        <option value="3">کوچک (۳ در ۳)</option>
+                        <option value="5" selected>متوسط (۵ در ۵)</option>
+                        <option value="7">بزرگ (۷ در ۷)</option>
+                    </select>
+                </div>
+
+                <!-- دکمه‌های اکشن (ساخت / پیوستن) -->
+                <button class="start-game-modal-btn" id="create-room-btn">ساخت اتاق جدید و شروع 🛠️</button>
+                <button class="start-game-modal-btn" id="join-room-btn" style="background-color: #28a745; margin-top: 10px;">پیوستن به بازی 🤝</button>
             </div>
         </div>
     </div>
 
     <script src="script.js"></script>
 </body>
-</html> 
+</html>
