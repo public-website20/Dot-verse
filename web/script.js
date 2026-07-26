@@ -2,9 +2,6 @@
     DotVerse - Production Game Logic (script.js)
     ========================================== */
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.x.x/firebase-app.js";
-import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.x.x/firebase-database.js";
-
 const firebaseConfig = {
     apiKey: "AIzaSyDt-Yzy6S9VK3ucd-sVM9nTtfahcotFncc",
     authDomain: "dotverse-9850e.firebaseapp.com",
@@ -15,12 +12,13 @@ const firebaseConfig = {
     appId: "1:539684224862:web:8aa2f7b4de430b9e4ad9cf"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+// راه‌اندازی فایربیس با کتابخانه‌های Compat
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get('room') || 'default_room';
-const roomRef = ref(db, 'rooms/' + roomId);
+const roomRef = db.ref('rooms/' + roomId);
 
 const PLAYER_COLORS = [
     "#38bdf8", "#ef4444", "#22c55e", "#f59e0b", "#a855f7",
@@ -53,7 +51,7 @@ let boardState = {
     settingsOpened: false
 };
 
-onValue(roomRef, (snapshot) => {
+roomRef.on('value', (snapshot) => {
     const data = snapshot.val();
     if (data) {
         boardState = data;
@@ -63,6 +61,7 @@ onValue(roomRef, (snapshot) => {
         
         const welcomeOverlay = document.getElementById('welcome-overlay');
         const settingsOverlay = document.getElementById('settings-overlay');
+        const adminFinishJoinBtn = document.getElementById('admin-finish-join-btn');
 
         if (boardState.gameStarted) {
             if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
@@ -70,8 +69,38 @@ onValue(roomRef, (snapshot) => {
         } else if (boardState.settingsOpened) {
             if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
         }
+
+        // بررسی اینکه اگر کاربر سازنده است، دکمه اتمام عضوگیری برایش نمایش داده شود
+        let currentUserId = getTelegramUser().id;
+        if (boardState.players.length > 0 && boardState.players[0].id === currentUserId) {
+            isCreator = true;
+            if (adminFinishJoinBtn && !boardState.gameStarted && !boardState.settingsOpened) {
+                adminFinishJoinBtn.style.display = 'block';
+            }
+        }
     }
 });
+
+function getTelegramUser() {
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+        const u = window.Telegram.WebApp.initDataUnsafe.user;
+        return {
+            id: u.id,
+            name: (u.first_name || '') + (u.last_name ? ' ' + u.last_name : '') || 'کاربر تلگرام'
+        };
+    }
+    let storedId = localStorage.getItem('dotverse_user_id');
+    if (!storedId) {
+        storedId = Math.floor(Math.random() * 1000000);
+        localStorage.setItem('dotverse_user_id', storedId);
+    } else {
+        storedId = parseInt(storedId);
+    }
+    return {
+        id: storedId,
+        name: `کاربر_${storedId.toString().slice(-4)}`
+    };
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     const welcomeOverlay = document.getElementById('welcome-overlay');
@@ -86,27 +115,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.Telegram && window.Telegram.WebApp) {
         window.Telegram.WebApp.ready();
         window.Telegram.WebApp.expand();
-    }
-
-    function getTelegramUser() {
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-            const u = window.Telegram.WebApp.initDataUnsafe.user;
-            return {
-                id: u.id,
-                name: (u.first_name || '') + (u.last_name ? ' ' + u.last_name : '') || 'کاربر تلگرام'
-            };
-        }
-        let storedId = localStorage.getItem('dotverse_user_id');
-        if (!storedId) {
-            storedId = Math.floor(Math.random() * 1000000);
-            localStorage.setItem('dotverse_user_id', storedId);
-        } else {
-            storedId = parseInt(storedId);
-        }
-        return {
-            id: storedId,
-            name: `کاربر_${storedId.toString().slice(-4)}`
-        };
     }
 
     function updateGridOptionsBasedOnPlayers() {
@@ -145,7 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
             isCreator = true;
 
             if (boardState.players.some(p => p.id === user.id)) {
-                alert('شما قبلاً وارد بازی شده‌اید!');
+                if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
                 return;
             }
 
@@ -160,9 +168,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
             if (adminFinishJoinBtn) adminFinishJoinBtn.style.display = 'block';
 
-            set(roomRef, boardState);
+            roomRef.set(boardState);
             updateUI();
-            alert('اتاق ساخته شد! لینک دعوت را برای دوستانتان بفرستید تا وارد شوند.');
         });
     }
 
@@ -180,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const user = getTelegramUser();
 
             if (boardState.players.some(p => p.id === user.id)) {
-                alert('شما قبلاً به این بازی ملحق شده‌اید!');
+                if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
                 return;
             }
 
@@ -194,13 +201,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
 
-            set(roomRef, boardState);
+            roomRef.set(boardState);
             updateUI();
-            alert('با موفقیت به بازی ملحق شدید! منتظر شروع بازی توسط سازنده باشید.');
         });
     }
 
-    // دکمه اتمام عضوگیری توسط سازنده
     if (adminFinishJoinBtn) {
         adminFinishJoinBtn.addEventListener('click', () => {
             if (boardState.players.length === 0) {
@@ -210,7 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
             boardState.settingsOpened = true;
             updateGridOptionsBasedOnPlayers();
             if (settingsOverlay) settingsOverlay.classList.remove('hidden');
-            set(roomRef, boardState);
+            roomRef.set(boardState);
         });
     }
 
@@ -220,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (val === "none") {
                 boardState.timerSetting = "none";
             } else {
-                boardState.timerSetting = parseInt(val) * 60; // تبدیل دقیقه به ثانیه
+                boardState.timerSetting = parseInt(val) * 60; 
             }
         });
     }
@@ -235,7 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
             boardState.gameStarted = true;
             if (settingsOverlay) settingsOverlay.classList.add('hidden');
             
-            set(roomRef, boardState);
+            roomRef.set(boardState);
             updateUI();
             renderBoard();
             startTimer();
@@ -249,7 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function removePlayer(playerId) {
     if (!isCreator || boardState.gameStarted || boardState.settingsOpened) return;
     boardState.players = boardState.players.filter(p => p.id !== playerId);
-    set(roomRef, boardState);
+    roomRef.set(boardState);
     updateUI();
 }
 
@@ -402,7 +407,7 @@ function handleLineClick(lineId, lineElement, type) {
         renderBoard();
     }
 
-    set(roomRef, boardState);
+    roomRef.set(boardState);
 }
 
 function checkForCompletedSquares(player) {
@@ -499,7 +504,7 @@ function startTimer() {
 
         if (boardState.timer <= 0) {
             nextTurn();
-            set(roomRef, boardState);
+            roomRef.set(boardState);
         }
     }, 1000);
 }
