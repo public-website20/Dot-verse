@@ -1,5 +1,5 @@
 /* ==========================================
-    DotVerse - Clean Game Logic (script.js)
+    DotVerse - Final Game Logic with Timer Settings (script.js)
     ========================================== */
 
 const PLAYER_COLORS = [
@@ -16,20 +16,20 @@ const PLAYER_ANIMALS = [
     "🐝", "🦋", "🐬", "🐢", "🐿️"
 ];
 
-const urlParams = new URLSearchParams(window.location.search);
-let gridSize = parseInt(urlParams.get('size')) || 5;
-
-let isCreator = true;
+let gridSize = 5;
+let isCreator = false; 
 const maxPlayersLimit = 20;
 
 let boardState = {
-    size: gridSize,
+    size: 5,
     lines: {},
     squares: [],
-    players: [], // لیست بازیکنان کاملاً خالی
+    players: [], 
     currentTurnIndex: 0,
-    timer: 20,
-    timerInterval: null
+    timerSetting: 5, // پیش‌فرض ۵ ثانیه
+    timer: 5,
+    timerInterval: null,
+    gameStarted: false
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const createRoomBtn = document.getElementById('create-room-btn');
     const joinRoomBtn = document.getElementById('join-room-btn');
     const gridSizeSelect = document.getElementById('grid-size-select');
+    const timerModeSelect = document.getElementById('timer-mode-select'); // انتخابگر زمان
     const adminStartBtn = document.getElementById('admin-start-btn');
 
     if (window.Telegram && window.Telegram.WebApp) {
@@ -44,62 +45,58 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Telegram.WebApp.expand();
     }
 
-    if (gridSizeSelect) {
-        gridSizeSelect.value = gridSize;
+    let telegramUser = null;
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+        telegramUser = window.Telegram.WebApp.initDataUnsafe.user;
     }
 
     // ساخت اتاق توسط سازنده
     if (createRoomBtn) {
         createRoomBtn.addEventListener('click', () => {
-            if (gridSizeSelect) {
-                gridSize = parseInt(gridSizeSelect.value);
-                boardState.size = gridSize;
+            isCreator = true;
+            
+            const playerName = telegramUser ? (telegramUser.first_name + (telegramUser.last_name ? ' ' + telegramUser.last_name : '')) + " (سازنده)" : "سازنده";
+            const playerId = telegramUser ? telegramUser.id : 101;
+
+            if (boardState.players.some(p => p.id === playerId)) {
+                alert('شما قبلاً وارد شده‌اید!');
+                return;
             }
 
-            let telegramUser = null;
-            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-                telegramUser = window.Telegram.WebApp.initDataUnsafe.user;
-            }
-            const creatorName = telegramUser ? (telegramUser.first_name + (telegramUser.last_name ? ' ' + telegramUser.last_name : '')) + " (سازنده)" : "سازنده";
-            const creatorId = telegramUser ? telegramUser.id : 101;
-
-            boardState.players = [{
-                id: creatorId,
-                name: creatorName,
+            boardState.players.push({
+                id: playerId,
+                name: playerName,
                 color: PLAYER_COLORS[0],
                 animal: PLAYER_ANIMALS[0],
                 score: 0
-            }];
+            });
 
-            if (adminStartBtn) {
-                adminStartBtn.style.display = 'block';
-            }
+            if (adminStartBtn) adminStartBtn.style.display = 'block';
+            if (gridSizeSelect) gridSizeSelect.disabled = false;
+            if (timerModeSelect) timerModeSelect.disabled = false;
 
-            welcomeOverlay.classList.add('hidden');
             updateUI();
-            renderBoard();
+            alert('شما اتاق را ایجاد کردید. ابعاد و زمان را تنظیم کرده و منتظر بمانید تا بازیکنان وارد شوند.');
         });
     }
 
-    // پیوستن به بازی توسط سایرین
+    // پیوستن سایر بازیکنان
     if (joinRoomBtn) {
         joinRoomBtn.addEventListener('click', () => {
+            if (boardState.gameStarted) {
+                alert('بازی شروع شده است و امکان ورود نیست!');
+                return;
+            }
             if (boardState.players.length >= maxPlayersLimit) {
                 alert('ظرفیت اتاق تکمیل است!');
                 return;
             }
 
-            let telegramUser = null;
-            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-                telegramUser = window.Telegram.WebApp.initDataUnsafe.user;
-            }
-
-            const playerName = telegramUser ? (telegramUser.first_name + (telegramUser.last_name ? ' ' + telegramUser.last_name : '')) : "کاربر مهمان";
+            const playerName = telegramUser ? (telegramUser.first_name + (telegramUser.last_name ? ' ' + telegramUser.last_name : '')) : "مهمان";
             const playerId = telegramUser ? telegramUser.id : Date.now();
 
             if (boardState.players.some(p => p.id === playerId)) {
-                alert('شما قبلاً به این بازی پیوسته‌اید!');
-                welcomeOverlay.classList.add('hidden');
+                alert('شما قبلاً به بازی پیوسته‌اید!');
                 return;
             }
 
@@ -112,18 +109,43 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             updateUI();
-            welcomeOverlay.classList.add('hidden');
-            renderBoard();
+            alert('با موفقیت به لیست بازیکنان اضافه شدید! منتظر شروع بازی توسط سازنده باشید.');
         });
     }
 
+    // اتمام عضوگیری و شروع نهایی بازی توسط سازنده
     if (adminStartBtn) {
         adminStartBtn.addEventListener('click', () => {
+            if (!isCreator) {
+                alert('فقط سازنده اتاق می‌تواند بازی را شروع کند!');
+                return;
+            }
             if (boardState.players.length === 0) {
                 alert('هیچ بازیکنی در بازی حضور ندارد!');
                 return;
             }
-            adminStartBtn.style.display = 'none';
+
+            // گرفتن ابعاد تخته
+            if (gridSizeSelect) {
+                gridSize = parseInt(gridSizeSelect.value);
+                boardState.size = gridSize;
+            }
+
+            // گرفتن تنظیمات تایمر انتخابی سازنده
+            if (timerModeSelect) {
+                const val = timerModeSelect.value;
+                if (val === "none") {
+                    boardState.timerSetting = "none";
+                } else {
+                    boardState.timerSetting = parseInt(val);
+                }
+            }
+
+            boardState.gameStarted = true;
+            welcomeOverlay.classList.add('hidden');
+            
+            updateUI();
+            renderBoard();
             startTimer();
             alert('بازی رسماً شروع شد!');
         });
@@ -134,11 +156,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function removePlayer(playerId) {
-    if (!isCreator) return;
+    if (!isCreator || boardState.gameStarted) return;
     boardState.players = boardState.players.filter(p => p.id !== playerId);
-    if (boardState.currentTurnIndex >= boardState.players.length) {
-        boardState.currentTurnIndex = 0;
-    }
     updateUI();
 }
 
@@ -256,6 +275,7 @@ function applyLineStyle(lineElement, lineData, type) {
 }
 
 function handleLineClick(lineId, lineElement, type) {
+    if (!boardState.gameStarted) return;
     if (boardState.lines[lineId]) return;
     if (boardState.players.length === 0) return;
 
@@ -310,7 +330,7 @@ function checkForCompletedSquares(player) {
                     timestamp: timestamp
                 });
                 player.score += 1;
-                    count++;
+                count++;
 
                 addSquareToLine(topId, player, timestamp);
                 addSquareToLine(bottomId, player, timestamp);
@@ -358,7 +378,15 @@ function renderSquares(container, padding, spacing) {
 
 function startTimer() {
     clearInterval(boardState.timerInterval);
-    boardState.timer = 20;
+
+    // اگر حالت بازی بدون زمان باشد، تایمر اجرا نمی‌شود
+    if (boardState.timerSetting === "none") {
+        const timerEl = document.getElementById('floating-timer');
+        if (timerEl) timerEl.textContent = "⏳ زمان: نامحدود";
+        return;
+    }
+
+    boardState.timer = boardState.timerSetting;
     updateTimerUI();
 
     boardState.timerInterval = setInterval(() => {
@@ -378,11 +406,16 @@ function resetTimer() {
 function updateTimerUI() {
     const timerEl = document.getElementById('floating-timer');
     if (timerEl) {
-        timerEl.textContent = `⏳ زمان باقی‌مانده: ${boardState.timer}s`;
-        if (boardState.timer <= 5) {
-            timerEl.classList.add('warning');
-        } else {
+        if (boardState.timerSetting === "none") {
+            timerEl.textContent = "⏳ زمان: نامحدود";
             timerEl.classList.remove('warning');
+        } else {
+            timerEl.textContent = `⏳ زمان باقی‌مانده: ${boardState.timer}s`;
+            if (boardState.timer <= 2) {
+                timerEl.classList.add('warning');
+            } else {
+                timerEl.classList.remove('warning');
+            }
         }
     }
 }
@@ -396,13 +429,13 @@ function nextTurn() {
 
 function updateUI() {
     const banner = document.getElementById('turn-banner');
-    if (boardState.players.length > 0) {
+    if (boardState.gameStarted && boardState.players.length > 0) {
         const currentPlayer = boardState.players[boardState.currentTurnIndex];
         if (banner) {
             banner.innerHTML = `نوبت بازی: <span style="color:${currentPlayer.color}; font-weight:900;">${currentPlayer.animal} ${currentPlayer.name}</span>`;
         }
     } else {
-        if (banner) banner.textContent = "هنوز بازیکنی وارد نشده است!";
+        if (banner) banner.textContent = "در انتظار شروع بازی و عضوگیری...";
     }
 
     const playerCountSpan = document.getElementById('player-count');
@@ -418,10 +451,10 @@ function updateUI() {
     boardState.players.forEach((player, idx) => {
         const isCurrent = idx === boardState.currentTurnIndex;
         const item = document.createElement('div');
-        item.className = `player-item ${isCurrent ? 'active-turn' : ''}`;
+        item.className = `player-item ${isCurrent && boardState.gameStarted ? 'active-turn' : ''}`;
         
         let deleteBtnHtml = '';
-        if (isCreator) {
+        if (isCreator && !boardState.gameStarted) {
             deleteBtnHtml = `<button class="remove-player-btn" onclick="removePlayer(${player.id})" title="حذف بازیکن" style="background:none; border:none; color:#ef4444; font-size:16px; cursor:pointer; margin-right:8px;">❌</button>`;
         }
 
@@ -429,7 +462,7 @@ function updateUI() {
             <div class="player-info" style="display:flex; align-items:center; gap:8px;">
                 <span class="player-badge" style="background:${player.color}; padding:4px 8px; border-radius:4px;">${player.animal}</span>
                 <div>
-                    <div><b>${player.name}</b> ${isCurrent ? '📌' : ''}</div>
+                    <div><b>${player.name}</b> ${isCurrent && boardState.gameStarted ? '📌' : ''}</div>
                 </div>
             </div>
             <div style="display:flex; align-items:center;">
