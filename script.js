@@ -16,7 +16,16 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 const urlParams = new URLSearchParams(window.location.search);
-const urlRoomId = urlParams.get('room');
+let urlRoomId = urlParams.get('room');
+
+if (!urlRoomId && window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
+    urlRoomId = window.Telegram.WebApp.initDataUnsafe.start_param;
+}
+if (!urlRoomId) {
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    urlRoomId = hashParams.get('tgWebAppStartParam');
+}
+
 const roomId = urlRoomId || 'room_' + Math.random().toString(36).substring(2, 8);
 const roomRef = db.ref('rooms/' + roomId);
 
@@ -135,7 +144,7 @@ function getTelegramUser() {
 
 function copyRoomLink() {
     const botUsername = "Dot_GameBot"; 
-    const miniAppName = "game"; 
+    const miniAppName = "app"; 
     
     let shareUrl = `https://t.me/${botUsername}/${miniAppName}?startapp=${roomId}`;
 
@@ -649,7 +658,7 @@ function setupDrawer() {
     }
 
     if (menuToggle) menuToggle.addEventListener('click', toggleDrawer);
-    if (closeBtn) closeBtn.addEventListener('click', toggleDrawer);
+    if (closeBtn) closeBtn.addEventListener('click', closeDrawer);
     if (overlay) overlay.addEventListener('click', toggleDrawer);
 }
 
