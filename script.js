@@ -626,24 +626,39 @@ function updateUI() {
         const item = document.createElement('div');
         item.className = `player-item ${isCurrent && boardState.gameStarted ? 'active-turn' : ''}`;
         
-        let deleteBtnHtml = '';
+        let deleteBtn = null;
         if (isCreator && !boardState.gameStarted && !boardState.settingsOpened && idx !== 0) {
-            deleteBtnHtml = `<button class="remove-player-btn" onclick="removePlayer(${player.id})" title="حذف بازیکن" style="background:none; border:none; color:#ef4444; font-size:16px; cursor:pointer; margin-right:8px;">❌</button>`;
+            deleteBtn = document.createElement('button');
+            deleteBtn.className = 'remove-player-btn';
+            deleteBtn.innerHTML = '❌';
+            deleteBtn.title = 'حذف بازیکن';
+            deleteBtn.style.cssText = 'background:none; border:none; color:#ef4444; font-size:16px; cursor:pointer; margin-right:8px; padding:4px;';
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                removePlayer(player.id);
+            });
         }
 
-        item.innerHTML = `
-            <div class="player-info" style="display:flex; align-items:center; gap:8px;">
-                <span class="player-badge" style="background:${player.color}; padding:4px 8px; border-radius:4px;">${player.animal}</span>
-                <div>
-                    <div><b>${player.name}</b> ${isCurrent && boardState.gameStarted ? '📌' : ''}</div>
-                </div>
+        const playerInfoDiv = document.createElement('div');
+        playerInfoDiv.className = 'player-info';
+        playerInfoDiv.style.cssText = 'display:flex; align-items:center; gap:8px;';
+        playerInfoDiv.innerHTML = `
+            <span class="player-badge" style="background:${player.color}; padding:4px 8px; border-radius:4px;">${player.animal}</span>
+            <div>
+                <div><b>${player.name}</b> ${isCurrent && boardState.gameStarted ? '📌' : ''}</div>
             </div>
-            <div style="display:flex; align-items:center;">
-                <b style="margin-left:8px;">امتیاز: ${player.score}</b>
-                ${deleteBtnHtml}
-            </div>
-      `;
+        `;
 
+        const playerRightDiv = document.createElement('div');
+        playerRightDiv.style.cssText = 'display:flex; align-items:center;';
+        playerRightDiv.innerHTML = `<b style="margin-left:8px;">امتیاز: ${player.score}</b>`;
+
+        if (deleteBtn) {
+            playerRightDiv.appendChild(deleteBtn);
+        }
+
+        item.appendChild(playerInfoDiv);
+        item.appendChild(playerRightDiv);
         listContainer.appendChild(item);
     });
 }
