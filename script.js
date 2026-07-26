@@ -1,6 +1,27 @@
 /* ==========================================
-   DotVerse - Complete Game Logic (script.js)
-   ========================================== */
+    DotVerse - Production Game Logic (script.js)
+    ========================================== */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.x.x/firebase-app.js";
+import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.x.x/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDt-Yzy6S9VK3ucd-sVM9nTtfahcotFncc",
+  authDomain: "dotverse-9850e.firebaseapp.com",
+  databaseURL: "https://dotverse-9850e-default-rtdb.firebaseio.com",
+  projectId: "dotverse-9850e",
+  storageBucket: "dotverse-9850e.firebasestorage.app",
+  messagingSenderId: "539684224862",
+  appId: "1:539684224862:web:8aa2f7b4de430b9e4ad9cf"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// دریافت شناسه اتاق از URL (برای اتصال چند بازیکن به یک صفحه مشترک)
+const urlParams = new URLSearchParams(window.location.search);
+const roomId = urlParams.get('room') || 'default_room';
+const roomRef = ref(db, 'rooms/' + roomId);
 
 const PLAYER_COLORS = [
     "#38bdf8", "#ef4444", "#22c55e", "#f59e0b", "#a855f7",
@@ -16,38 +37,160 @@ const PLAYER_ANIMALS = [
     "🐝", "🦋", "🐬", "🐢", "🐿️"
 ];
 
-const urlParams = new URLSearchParams(window.location.search);
-const gridSize = parseInt(urlParams.get('size')) || 8;
+let gridSize = 5;
+let isCreator = false; 
+const maxPlayersLimit = 20;
 
 let boardState = {
-    size: gridSize,
+    size: 5,
     lines: {},
     squares: [],
-    players: [],
+    players: [], 
     currentTurnIndex: 0,
-    timer: 20,
-    timerInterval: null
+    timerSetting: 5,
+    timer: 5,
+    timerInterval: null,
+    gameStarted: false
 };
+
+// همگام‌سازی زنده اطلاعات از دیتابیس ابری فایربیس
+onValue(roomRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+        boardState = data;
+        gridSize = boardState.size || 5;
+        updateUI();
+        renderBoard();
+        
+        const welcomeOverlay = document.getElementById('welcome-overlay');
+        if (boardState.gameStarted && welcomeOverlay) {
+            welcomeOverlay.classList.add('hidden');
+        }
+    }
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     const welcomeOverlay = document.getElementById('welcome-overlay');
-    const startBtnModal = document.getElementById('start-game-modal-btn');
+    const createRoomBtn = document.getElementById('create-room-btn');
+    const joinRoomBtn = document.getElementById('join-room-btn');
+    const gridSizeSelect = document.getElementById('grid-size-select');
+    const timerModeSelect = document.getElementById('timer-mode-select');
+    const adminStartBtn = document.getElementById('admin-start-btn');
 
-    // تنظیمات تلگرام وب‌اپ
     if (window.Telegram && window.Telegram.WebApp) {
         window.Telegram.WebApp.ready();
         window.Telegram.WebApp.expand();
     }
 
-    // رویداد کلیک روی دکمه شروع بازی در پیام شناور
-    if (startBtnModal) {
-        startBtnModal.addEventListener('click', () => {
-            // مخفی کردن پیام خوش‌آمدگویی
-            if (welcomeOverlay) {
-                welcomeOverlay.classList.add('hidden');
+    function getTelegramUser() {
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+            const u = window.Telegram.WebApp.initDataUnsafe.user;
+            return {
+                id: u.id,
+                name: (u.first_name || '') + (u.last_name ? ' ' + u.last_name : '') || 'کاربر تلگرام'
+            };
+        }
+        let storedId = localStorage.getItem('dotverse_user_id');
+        if (!storedId) {
+            storedId = Math.floor(Math.random() * 1000000);
+            localStorage.setItem('dotverse_user_id', storedId);
+        } else {
+            storedId = parseInt(storedId);
+        }
+        return {
+            id: storedId,
+            name: `کاربر_${storedId.toString().slice(-4)}`
+        };
+    }
+
+    if (createRoomBtn) {
+        createRoomBtn.addEventListener('click', () => {
+            const user = getTelegramUser();
+            isCreator = true;
+
+            if (boardState.players.some(p => p.id === user.id)) {
+                alert('شما قبلاً وارد بازی شده‌اید!');
+                return;
             }
-            // شروع بازی و تایمر
-            initGame();
+
+            boardState.players.push({
+                id: user.id,
+                name: user.name + " (سازنده)",
+                color: PLAYER_COLORS[0],
+                animal: PLAYER_ANIMALS[0],
+                score: 0
+            });
+
+            if (adminStartBtn) adminStartBtn.style.display = 'block';
+            if (gridSizeSelect) gridSizeSelect.disabled = false;
+            if (timerModeSelect) timerModeSelect.disabled = false;
+
+            set(roomRef, boardState);
+            updateUI();
+            alert('اتاق ساخته شد! حالا لینک دعوت را برای دوستانتان بفرستید.');
+        });
+    }
+
+    if (joinRoomBtn) {
+        joinRoomBtn.addEventListener('click', () => {
+            if (boardState.gameStarted) {
+                alert('بازی شروع شده است و امکان پیوستن وجود ندارد!');
+                return;
+            }
+            if (boardState.players.length >= maxPlayersLimit) {
+                alert('ظرفیت اتاق تکمیل است!');
+                return;
+            }
+
+            const user = getTelegramUser();
+
+            if (boardState.players.some(p => p.id === user.id)) {
+                alert('شما قبلاً به این بازی ملحق شده‌اید!');
+                return;
+            }
+
+            boardState.players.push({
+                id: user.id,
+                name: user.name,
+                score: 0,
+                color: PLAYER_COLORS[boardState.players.length % PLAYER_COLORS.length],
+                animal: PLAYER_ANIMALS[boardState.players.length % PLAYER_ANIMALS.length]
+            });
+
+            set(roomRef, boardState);
+            updateUI();
+            alert('با موفقیت به بازی ملحق شدید!');
+        });
+    }
+
+    if (adminStartBtn) {
+        adminStartBtn.addEventListener('click', () => {
+            if (!isCreator && boardState.players.length > 0 && boardState.players[0].id !== getTelegramUser().id) {
+                alert('فقط سازنده اتاق می‌تواند بازی را شروع کند!');
+                return;
+            }
+            if (boardState.players.length === 0) {
+                alert('هیچ بازیکنی در بازی حضور ندارد!');
+                return;
+            }
+
+            if (gridSizeSelect) {
+                gridSize = parseInt(gridSizeSelect.value);
+                boardState.size = gridSize;
+            }
+
+            if (timerModeSelect) {
+                const val = timerModeSelect.value;
+                boardState.timerSetting = val === "none" ? "none" : parseInt(val);
+            }
+
+            boardState.gameStarted = true;
+            welcomeOverlay.classList.add('hidden');
+            
+            set(roomRef, boardState);
+            updateUI();
+            renderBoard();
+            startTimer();
         });
     }
 
@@ -55,22 +198,11 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('resize', renderBoard);
 });
 
-function initGame() {
-    const rawPlayers = [
-        { id: 101, name: "علی" },
-        { id: 102, name: "رضا" }
-    ];
-
-    boardState.players = rawPlayers.map((p, idx) => ({
-        ...p,
-        color: PLAYER_COLORS[idx % PLAYER_COLORS.length],
-        animal: PLAYER_ANIMALS[idx % PLAYER_ANIMALS.length],
-        score: 0
-    }));
-
+function removePlayer(playerId) {
+    if (!isCreator || boardState.gameStarted) return;
+    boardState.players = boardState.players.filter(p => p.id !== playerId);
+    set(roomRef, boardState);
     updateUI();
-    renderBoard();
-    startTimer();
 }
 
 function renderBoard() {
@@ -160,7 +292,6 @@ function createLineElement(container, x, y, spacing, thickness, type, r, c) {
 
 function applyLineStyle(lineElement, lineData, type) {
     const adjacentSquares = lineData.squares || [];
-
     const uniqueOwners = [];
     const seenPlayerIds = new Set();
     for (const sq of adjacentSquares) {
@@ -188,9 +319,23 @@ function applyLineStyle(lineElement, lineData, type) {
 }
 
 function handleLineClick(lineId, lineElement, type) {
+    if (!boardState.gameStarted) return;
     if (boardState.lines[lineId]) return;
+    if (boardState.players.length === 0) return;
+
+    // بررسی نوبت بازیکن جاری
+    let currentUserId;
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+        currentUserId = window.Telegram.WebApp.initDataUnsafe.user.id;
+    } else {
+        currentUserId = parseInt(localStorage.getItem('dotverse_user_id'));
+    }
 
     const currentPlayer = boardState.players[boardState.currentTurnIndex];
+    if (currentPlayer.id !== currentUserId) {
+        alert('نوبت شما نیست!');
+        return;
+    }
 
     boardState.lines[lineId] = {
         defaultColor: currentPlayer.color,
@@ -209,6 +354,9 @@ function handleLineClick(lineId, lineElement, type) {
         updateUI();
         renderBoard();
     }
+
+    // آپدیت نهایی در دیتابیس فایربیس
+    set(roomRef, boardState);
 }
 
 function checkForCompletedSquares(player) {
@@ -289,7 +437,14 @@ function renderSquares(container, padding, spacing) {
 
 function startTimer() {
     clearInterval(boardState.timerInterval);
-    boardState.timer = 20;
+
+    if (boardState.timerSetting === "none") {
+        const timerEl = document.getElementById('floating-timer');
+        if (timerEl) timerEl.textContent = "⏳ زمان: نامحدود";
+        return;
+    }
+
+    boardState.timer = boardState.timerSetting;
     updateTimerUI();
 
     boardState.timerInterval = setInterval(() => {
@@ -298,6 +453,7 @@ function startTimer() {
 
         if (boardState.timer <= 0) {
             nextTurn();
+            set(roomRef, boardState);
         }
     }, 1000);
 }
@@ -309,21 +465,22 @@ function resetTimer() {
 function updateTimerUI() {
     const timerEl = document.getElementById('floating-timer');
     if (timerEl) {
-        timerEl.textContent = `⏳ زمان باقی‌مانده: ${boardState.timer}s`;
-        if (boardState.timer <= 5) {
-            timerEl.classList.add('warning');
-        } else {
+        if (boardState.timerSetting === "none") {
+            timerEl.textContent = "⏳ زمان: نامحدود";
             timerEl.classList.remove('warning');
+        } else {
+            timerEl.textContent = `⏳ زمان باقی‌مانده: ${boardState.timer}s`;
+            if (boardState.timer <= 1) {
+                timerEl.classList.add('warning');
+            } else {
+                timerEl.classList.remove('warning');
+            }
         }
-    }
-
-    const miniTimerEl = document.getElementById('active-player-timer');
-    if (miniTimerEl) {
-        miniTimerEl.textContent = `⏳ ${boardState.timer}s`;
     }
 }
 
 function nextTurn() {
+    if (boardState.players.length === 0) return;
     boardState.currentTurnIndex = (boardState.currentTurnIndex + 1) % boardState.players.length;
     updateUI();
     resetTimer();
@@ -331,9 +488,18 @@ function nextTurn() {
 
 function updateUI() {
     const banner = document.getElementById('turn-banner');
-    const currentPlayer = boardState.players[boardState.currentTurnIndex];
-    if (banner) {
-        banner.innerHTML = `نوبت بازی: <span style="color:${currentPlayer.color}; font-weight:900;">${currentPlayer.animal} ${currentPlayer.name}</span>`;
+    if (boardState.gameStarted && boardState.players.length > 0) {
+        const currentPlayer = boardState.players[boardState.currentTurnIndex];
+        if (banner) {
+            banner.innerHTML = `نوبت بازی: <span style="color:${currentPlayer.color}; font-weight:900;">${currentPlayer.animal} ${currentPlayer.name}</span>`;
+        }
+    } else {
+        if (banner) banner.textContent = "در انتظار شروع بازی و عضوگیری...";
+    }
+
+    const playerCountSpan = document.getElementById('player-count');
+    if (playerCountSpan) {
+        playerCountSpan.textContent = boardState.players.length;
     }
 
     const listContainer = document.getElementById('players-list');
@@ -344,18 +510,25 @@ function updateUI() {
     boardState.players.forEach((player, idx) => {
         const isCurrent = idx === boardState.currentTurnIndex;
         const item = document.createElement('div');
-        item.className = `player-item ${isCurrent ? 'active-turn' : ''}`;
+        item.className = `player-item ${isCurrent && boardState.gameStarted ? 'active-turn' : ''}`;
         
+        let deleteBtnHtml = '';
+        if (isCreator && !boardState.gameStarted) {
+            deleteBtnHtml = `<button class="remove-player-btn" onclick="removePlayer(${player.id})" title="حذف بازیکن" style="background:none; border:none; color:#ef4444; font-size:16px; cursor:pointer; margin-right:8px;">❌</button>`;
+        }
+
         item.innerHTML = `
-            <div class="player-info">
-                <span class="player-badge" style="background:${player.color};">${player.animal}</span>
+            <div class="player-info" style="display:flex; align-items:center; gap:8px;">
+                <span class="player-badge" style="background:${player.color}; padding:4px 8px; border-radius:4px;">${player.animal}</span>
                 <div>
-                    <div><b>${player.name}</b> ${isCurrent ? '📌' : ''}</div>
-                    ${isCurrent ? `<div class="player-timer-mini" id="active-player-timer">⏳ ${boardState.timer}s</div>` : ''}
+                    <div><b>${player.name}</b> ${isCurrent && boardState.gameStarted ? '📌' : ''}</div>
                 </div>
             </div>
-            <b>امتیاز: ${player.score}</b>
-        `;
+            <div style="display:flex; align-items:center;">
+                <b style="margin-left:8px;">امتیاز: ${player.score}</b>
+                ${deleteBtnHtml}
+            </div>
+      `;
 
         listContainer.appendChild(item);
     });
@@ -376,3 +549,5 @@ function setupDrawer() {
     if (closeBtn) closeBtn.addEventListener('click', toggleDrawer);
     if (overlay) overlay.addEventListener('click', toggleDrawer);
 }
+
+window.removePlayer = removePlayer;
