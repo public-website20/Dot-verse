@@ -1,6 +1,6 @@
 /* ==========================================
-    DotVerse - Production Game Logic (script.js)
-    ========================================== */
+   DotVerse - Production Game Logic (script.js)
+   ========================================== */
 
 const firebaseConfig = {
     apiKey: "AIzaSyDt-Yzy6S9VK3ucd-sVM9nTtfahcotFncc",
@@ -12,12 +12,11 @@ const firebaseConfig = {
     appId: "1:539684224862:web:8aa2f7b4de430b9e4ad9cf"
 };
 
-// راه‌اندازی فایربیس با کتابخانه‌های Compat
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 const urlParams = new URLSearchParams(window.location.search);
-const roomId = urlParams.get('room') || 'default_room';
+const roomId = urlParams.get('room') || 'room_' + Math.random().toString(36).substring(2, 8);
 const roomRef = db.ref('rooms/' + roomId);
 
 const PLAYER_COLORS = [
@@ -70,13 +69,16 @@ roomRef.on('value', (snapshot) => {
             if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
         }
 
-        // بررسی اینکه اگر کاربر سازنده است، دکمه اتمام عضوگیری برایش نمایش داده شود
         let currentUserId = getTelegramUser().id;
+        // بررسی دقیق سازنده (نفر اول لیست بازیکنان)
         if (boardState.players.length > 0 && boardState.players[0].id === currentUserId) {
             isCreator = true;
             if (adminFinishJoinBtn && !boardState.gameStarted && !boardState.settingsOpened) {
                 adminFinishJoinBtn.style.display = 'block';
             }
+        } else {
+            isCreator = false;
+            if (adminFinishJoinBtn) adminFinishJoinBtn.style.display = 'none';
         }
     }
 });
@@ -90,37 +92,45 @@ function getTelegramUser() {
         };
     }
     let storedId = localStorage.getItem('dotverse_user_id');
+    let storedName = localStorage.getItem('dotverse_user_name');
     if (!storedId) {
         storedId = Math.floor(Math.random() * 1000000);
+        storedName = `کاربر_${storedId.toString().slice(-4)}`;
         localStorage.setItem('dotverse_user_id', storedId);
-    } else {
-        storedId = parseInt(storedId);
+        localStorage.setItem('dotverse_user_name', storedName);
     }
     return {
-        id: storedId,
-        name: `کاربر_${storedId.toString().slice(-4)}`
+        id: parseInt(storedId),
+        name: storedName || `کاربر_${storedId}`
     };
 }
 
-// تابع کپی کردن لینک دعوت اتاق
+// تابع اصلاح‌شده برای ساخت لینک کوتاه یا لینک مستقیم مینی‌اپ تلگرام
 function copyRoomLink() {
-    const currentUrl = window.location.href.split('?')[0] + `?room=${roomId}`;
+    const botUsername = "YourBotUsername"; // نام کاربری ربات شما بدون @ (در صورت داشتن بات)
+    const miniAppName = "DotVerse"; // نام کوتاه مینی اپ در بات فادر
     
+    let shareUrl = `https://t.me/${botUsername}/${miniAppName}?startapp=${roomId}`;
+    
+    if (botUsername === "YourBotUsername") {
+        shareUrl = window.location.href.split('?')[0] + `?room=${roomId}`;
+    }
+
     if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(currentUrl).then(() => {
+        navigator.clipboard.writeText(shareUrl).then(() => {
             alert('🔗 لینک دعوت اتاق با موفقیت کپی شد!');
-        }).catch(err => {
-            fallbackCopyText(currentUrl);
+        }).catch(() => {
+            fallbackCopyText(shareUrl);
         });
     } else {
-        fallbackCopyText(currentUrl);
+        fallbackCopyText(shareUrl);
     }
 }
 
 function fallbackCopyText(text) {
     const textArea = document.createElement("textarea");
     textArea.value = text;
-    textArea.style.position = "fixed";  // جلوگیری از اسکرول صفحه
+    textArea.style.position = "fixed";
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
@@ -128,7 +138,7 @@ function fallbackCopyText(text) {
         document.execCommand('copy');
         alert('🔗 لینک دعوت اتاق با موفقیت کپی شد!');
     } catch (err) {
-        alert('کپی لینک انجام نشد. لطفاً لینک بالا را دستی کپی کنید: \n' + text);
+        alert('لینک دعوت: \n' + text);
     }
     document.body.removeChild(textArea);
 }
@@ -150,26 +160,12 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Telegram.WebApp.expand();
     }
 
-    // اتصال رویداد دکمه‌های کپی لینک
     if (copyLinkWelcomeBtn) copyLinkWelcomeBtn.addEventListener('click', copyRoomLink);
     if (copyLinkDrawerBtn) copyLinkDrawerBtn.addEventListener('click', copyRoomLink);
 
     function updateGridOptionsBasedOnPlayers() {
         if (!gridSizeSelect) return;
-        const count = boardState.players.length;
-        let options = [];
-
-        if (count >= 1 && count <= 4) {
-            options = [6, 8, 10, 12];
-        } else if (count >= 5 && count <= 8) {
-            options = [8, 10, 12, 14];
-        } else if (count >= 9 && count <= 12) {
-            options = [10, 12, 14, 16];
-        } else if (count >= 13 && count <= 16) {
-            options = [12, 14, 16, 18];
-        } else {
-            options = [14, 16, 18, 20];
-        }
+        let options = [6, 8, 10, 12, 14, 16];
 
         gridSizeSelect.innerHTML = '';
         options.forEach((size, idx) => {
@@ -194,13 +190,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            boardState.players.push({
+            boardState.players = [{
                 id: user.id,
                 name: user.name + " (سازنده)",
                 color: PLAYER_COLORS[0],
                 animal: PLAYER_ANIMALS[0],
                 score: 0
-            });
+            }];
 
             if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
             if (adminFinishJoinBtn) adminFinishJoinBtn.style.display = 'block';
@@ -413,13 +409,7 @@ function handleLineClick(lineId, lineElement, type) {
     if (boardState.lines[lineId]) return;
     if (boardState.players.length === 0) return;
 
-    let currentUserId;
-    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-        currentUserId = window.Telegram.WebApp.initDataUnsafe.user.id;
-    } else {
-        currentUserId = parseInt(localStorage.getItem('dotverse_user_id'));
-    }
-
+    let currentUserId = getTelegramUser().id;
     const currentPlayer = boardState.players[boardState.currentTurnIndex];
     if (currentPlayer.id !== currentUserId) {
         alert('نوبت شما نیست!');
@@ -603,7 +593,7 @@ function updateUI() {
         item.className = `player-item ${isCurrent && boardState.gameStarted ? 'active-turn' : ''}`;
         
         let deleteBtnHtml = '';
-        if (isCreator && !boardState.gameStarted && !boardState.settingsOpened) {
+        if (isCreator && !boardState.gameStarted && !boardState.settingsOpened && idx !== 0) {
             deleteBtnHtml = `<button class="remove-player-btn" onclick="removePlayer(${player.id})" title="حذف بازیکن" style="background:none; border:none; color:#ef4444; font-size:16px; cursor:pointer; margin-right:8px;">❌</button>`;
         }
 
