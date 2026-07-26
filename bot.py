@@ -31,8 +31,8 @@ async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """منوی اصلی ربات که با بررسی رمز عبور کار می‌کند."""
     user_id = update.effective_user.id
 
-    # بررسی احراز هویت کاربر
-    if not context.user_data.get(f"authenticated_{user_id}", False):
+    # بررسی احراز هویت کاربر (استفاده از bot_data برای دسترسی سراسری)
+    if not context.bot_data.get(f"authenticated_{user_id}", False):
         context.user_data["waiting_for_password"] = True
         await update.message.reply_text(
             "🔒 این ربات محافظت‌شده است.\n\nلطفاً برای شروع و استفاده از ربات، رمز عبور را ارسال کنید:"
@@ -64,7 +64,8 @@ async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         password_input = update.message.text
 
         if password_input == CORRECT_PASSWORD:
-            context.user_data[f"authenticated_{user_id}"] = True
+            # ذخیره در bot_data تا در حالت اینلاین هم شناخته شود
+            context.bot_data[f"authenticated_{user_id}"] = True
             context.user_data["waiting_for_password"] = False
             await update.message.reply_text(
                 "✅ رمز عبور صحیح است!\n\nاکنون می‌توانید از ربات استفاده کنید یا دستور `/start` را بزنید."
@@ -93,7 +94,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.inline_query.answer(results, cache_time=1)
         return
 
-    # اگر احراز هویت شده بود، کادر بازی مثل عکسی که فرستادید ظاهر می‌شود
+    # اگر احراز هویت شده بود، کادر بازی ظاهر می‌شود
     results = [
         InlineQueryResultArticle(
             id=str(uuid.uuid4()),
