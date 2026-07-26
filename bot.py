@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -23,15 +23,15 @@ from game.handlers import (
     set_grid_size,
 )
 
-# رمز عبور دلخواه برای محدود کردن دسترسی ربات
 CORRECT_PASSWORD = "Dv032000vD"
+
+# آدرس وب‌سایت شما روی گیت‌هاب پیج
+WEB_APP_URL = "https://public-website20.github.io/Dot-verse/"
 
 
 async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """منوی اصلی ربات که با بررسی رمز عبور و پشتیبانی از Deep Link کار می‌کند."""
     user_id = update.effective_user.id
 
-    # بررسی احراز هویت کاربر
     if not context.bot_data.get(f"authenticated_{user_id}", False):
         context.user_data["waiting_for_password"] = True
         await update.message.reply_text(
@@ -39,14 +39,9 @@ async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # بررسی ورود از طریق اینلاین
-    args = context.args
-    if args and args[0] == "create":
-        await select_grid_size(update, context)
-        return
-
+    # استفاده از دکمه Web App برای باز کردن سایت درون تلگرام
     keyboard = [
-        [InlineKeyboardButton("🆕 ایجاد بازی", callback_data="create_game")],
+        [InlineKeyboardButton("🎮 ورود به محیط بازی (مینی‌اپ)", web_app=WebAppInfo(url=WEB_APP_URL))],
         [InlineKeyboardButton("📖 آموزش", callback_data="help")],
         [InlineKeyboardButton("⚙️ تنظیمات", callback_data="settings")],
         [InlineKeyboardButton("ℹ️ درباره بازی", callback_data="about")],
@@ -56,13 +51,12 @@ async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     await update.message.reply_text(
         "🎮 به DotVerse خوش اومدی!\n\n"
-        "برای شروع یا مدیریت بازی، لطفاً یکی از گزینه‌های زیر را انتخاب کن:",
+        "برای شروع بازی، روی گزینه زیر کلیک کن تا محیط بازی باز شود:",
         reply_markup=reply_markup,
     )
 
 
 async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """بررسی رمز عبور ارسالی از سوی کاربر"""
     user_id = update.effective_user.id
 
     if context.user_data.get("waiting_for_password", False):
@@ -79,10 +73,8 @@ async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت حالت اینلاین (Inline Mode)"""
     user_id = update.inline_query.from_user.id
 
-    # بررسی احراز هویت
     if not context.bot_data.get(f"authenticated_{user_id}", False):
         results = [
             InlineQueryResultArticle(
@@ -97,20 +89,20 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.inline_query.answer(results, cache_time=1)
         return
 
-    bot_username = "Dot_GameBot"
-    
-    # دکمه‌ای که مستقیماً کاربر را به بخش ایجاد بازی هدایت می‌کند
-    reply_markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🆕 ایجاد بازی", url=f"https://t.me/{bot_username}?start=create")]
-    ])
+    # ارسال مینی‌اپ از طریق اینلاین در گروه یا چت دوستان
+    keyboard = [
+        [InlineKeyboardButton("🎮 باز کردن مینی‌اپ بازی", web_app=WebAppInfo(url=WEB_APP_URL))]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     results = [
         InlineQueryResultArticle(
             id=str(uuid.uuid4()),
-            title="🎮 ایجاد بازی جدید در DotVerse",
-            description="برای شروع بازی جدید کلیک کنید",
+            title="🎮 بازی DotVerse",
+            description="برای باز کردن محیط بازی کلیک کنید",
             input_message_content=InputTextMessageContent(
-                message_text="🎮 به بازی DotVerse خوش اومدی!\n\nبرای شروع یا مدیریت بازی، لطفاً روی گزینه زیر کلیک کن:"
+                message_text="🎮 به بازی DotVerse خوش آمدید!\n\nبرای ورود به محیط بازی روی دکمه زیر کلیک کنید:",
+                reply_markup=reply_markup
             ),
             reply_markup=reply_markup
         )
@@ -126,18 +118,11 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_password))
     app.add_handler(InlineQueryHandler(inline_query_handler))
 
-    app.add_handler(CallbackQueryHandler(create_game, pattern="^create_game$"))
-    app.add_handler(CallbackQueryHandler(join_game, pattern="^join_game$"))
-    app.add_handler(CallbackQueryHandler if hasattr(CallbackQueryHandler, 'sub') else CallbackQueryHandler(select_grid_size, pattern="^select_grid_size$"))
-    app.add_handler(CallbackQueryHandler(set_grid_size, pattern="^set_size_"))
-    app.add_handler(CallbackQueryHandler(start_game, pattern="^start_game$"))
-    app.add_handler(CallbackQueryHandler(cancel_game, pattern="^cancel_game$"))
     app.add_handler(CallbackQueryHandler(show_help, pattern="^help$"))
     app.add_handler(CallbackQueryHandler(show_settings, pattern="^settings$"))
     app.add_handler(CallbackQueryHandler(show_about, pattern="^about$"))
 
     print("Bot is running...")
-
     app.run_polling()
 
 
