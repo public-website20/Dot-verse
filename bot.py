@@ -39,15 +39,12 @@ async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # بررسی اینکه آیا کاربر از طریق دکمه‌ی اینلاین (گروه/چت دوستان) وارد شده است یا خیر
+    # بررسی ورود از طریق اینلاین
     args = context.args
     if args and args[0] == "create":
-        # اگر با پارامتر ایجاد آمده بود، مستقیماً مرحله‌ی ساخت بازی یا انتخاب ابعاد را صدا می‌زنیم
-        # (اگر تابع انتخابی دارید می‌توانید به جای آن تابع دلخواه را صدا بزنید)
         await select_grid_size(update, context)
         return
 
-    # منوی پیش‌فرض پی‌وی
     keyboard = [
         [InlineKeyboardButton("🆕 ایجاد بازی", callback_data="create_game")],
         [InlineKeyboardButton("📖 آموزش", callback_data="help")],
@@ -82,7 +79,7 @@ async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت حالت اینلاین در گروه‌ها و چت دوستان"""
+    """مدیریت حالت اینلاین (Inline Mode)"""
     user_id = update.inline_query.from_user.id
 
     # بررسی احراز هویت
@@ -100,20 +97,20 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.inline_query.answer(results, cache_time=1)
         return
 
-    bot_username = "Dot_GameBot" # آیدی ربات شما
+    bot_username = "Dot_GameBot"
     
-    # دکمه‌ای که کاربر را برای ساخت بازی به پی‌وی هدایت می‌کند
+    # دکمه‌ای که مستقیماً کاربر را به بخش ایجاد بازی هدایت می‌کند
     reply_markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎮 ساخت و مدیریت بازی در پی‌وی ربات", url=f"https://t.me/{bot_username}?start=create")]
+        [InlineKeyboardButton("🆕 ایجاد بازی", url=f"https://t.me/{bot_username}?start=create")]
     ])
 
     results = [
         InlineQueryResultArticle(
             id=str(uuid.uuid4()),
-            title="🎮 شروع بازی DotVerse",
-            description="برای ساخت و مدیریت بازی کلیک کنید",
+            title="🎮 ایجاد بازی جدید در DotVerse",
+            description="برای شروع بازی جدید کلیک کنید",
             input_message_content=InputTextMessageContent(
-                message_text="🎮 لابی بازی DotVerse\n\nبرای ساخت بازی جدید و انتخاب گزینه‌ها، روی دکمه زیر کلیک کنید تا وارد پی‌وی ربات شوید:"
+                message_text="🎮 به بازی DotVerse خوش اومدی!\n\nبرای شروع یا مدیریت بازی، لطفاً روی گزینه زیر کلیک کن:"
             ),
             reply_markup=reply_markup
         )
@@ -124,20 +121,14 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # دستورات شروع و اجرای بازی
     app.add_handler(CommandHandler("start", start_or_game_menu))
     app.add_handler(CommandHandler("game", start_or_game_menu))
-
-    # هندلر متن برای دریافت رمز عبور در پی‌وی
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_password))
-
-    # هندلر حالت اینلاین
     app.add_handler(InlineQueryHandler(inline_query_handler))
 
-    # هندلرهای دکمه‌های شیشه‌ای (Callback Queries)
     app.add_handler(CallbackQueryHandler(create_game, pattern="^create_game$"))
     app.add_handler(CallbackQueryHandler(join_game, pattern="^join_game$"))
-    app.add_handler(CallbackQueryHandler(select_grid_size, pattern="^select_grid_size$"))
+    app.add_handler(CallbackQueryHandler if hasattr(CallbackQueryHandler, 'sub') else CallbackQueryHandler(select_grid_size, pattern="^select_grid_size$"))
     app.add_handler(CallbackQueryHandler(set_grid_size, pattern="^set_size_"))
     app.add_handler(CallbackQueryHandler(start_game, pattern="^start_game$"))
     app.add_handler(CallbackQueryHandler(cancel_game, pattern="^cancel_game$"))
