@@ -1,10 +1,14 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import (
     Application,
     CommandHandler,
     ContextTypes,
     CallbackQueryHandler,
+    MessageHandler,
+    InlineQueryHandler,
+    filters,
 )
+import uuid
 
 from config import BOT_TOKEN
 from game.handlers import (
@@ -19,9 +23,23 @@ from game.handlers import (
     set_grid_size,
 )
 
+# رمز عبور دلخواه برای محدود کردن دسترسی ربات
+CORRECT_PASSWORD = "Dv032000vD"
+
 
 async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """منوی اصلی ربات که هم با دستور /start و هم /game در گروه یا پی‌وی کار می‌کند."""
+    """منوی اصلی ربات که با بررسی رمز عبور کار می‌کند."""
+    user_id = update.effective_user.id
+
+    # بررسی احراز هویت کاربر
+    if not context.user_data.get(f"authenticated_{user_id}", False):
+        context.user_data["waiting_for_password"] = True
+        await update.message.reply_text(
+            "🔒 این ربات محافظت‌شده است.\n\nلطفاً برای شروع و استفاده از ربات، رمز عبور را ارسال کنید:"
+        )
+        return
+
+    # اگر کاربر قبلاً رمز را وارد کرده بود، منوی بازی نمایش داده شود
     keyboard = [
         [InlineKeyboardButton("🆕 ایجاد بازی", callback_data="create_game")],
         [InlineKeyboardButton("📖 آموزش", callback_data="help")],
@@ -38,12 +56,72 @@ async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 
+async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """بررسی رمز عبور ارسالی از سوی کاربر"""
+    user_id = update.effective_user.id
+
+    if context.user_data.get("waiting_for_password", False):
+        password_input = update.message.text
+
+        if password_input == CORRECT_PASSWORD:
+            context.user_data[f"authenticated_{user_id}"] = True
+            context.user_data["waiting_for_password"] = False
+            await update.message.reply_text(
+                "✅ رمز عبور صحیح است!\n\nاکنون می‌توانید از ربات استفاده کنید یا دستور `/start` را بزنید."
+            )
+        else:
+            await update.message.reply_text("❌ رمز عبور اشتباه است. لطفاً دوباره تلاش کنید:")
+
+
+async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """مدیریت حالت اینلاین (وقتی آیدی ربات در چت/گروه تایپ می‌شود)"""
+    user_id = update.inline_query.from_user.id
+
+    # بررسی اینکه آیا کاربری که دارد اینلاین را استفاده می‌کند رمز را زده یا نه
+    if not context.bot_data.get(f"authenticated_{user_id}", False):
+        # اگر رمز را نزده بود، یک نتیجه نشان می‌دهد که کاربر را هدایت کند به پی‌وی
+        results = [
+            InlineQueryResultArticle(
+                id=str(uuid.uuid4()),
+                title="🔒 ربات قفل است (نیاز به رمز ورود)",
+                description="برای استفاده از ربات ابتدا در پی‌وی به ربات رمز را بدهید.",
+                input_message_content=InputTextMessageContent(
+                    message_text="❌ این ربات محافظت‌شده است. لطفاً ابتدا به پی‌وی ربات بروید و با وارد کردن رمز عبور آن را فعال کنید."
+                )
+            )
+        ]
+        await update.inline_query.answer(results, cache_time=1)
+        return
+
+    # اگر احراز هویت شده بود، کادر بازی مثل عکسی که فرستادید ظاهر می‌شود
+    results = [
+        InlineQueryResultArticle(
+            id=str(uuid.uuid4()),
+            title="🎮 شروع بازی DotVerse",
+            description="برای شروع بازی گروهی یا دونفره کلیک کنید",
+            input_message_content=InputTextMessageContent(
+                message_text="🎮 به بازی DotVerse خوش آمدید!\n\nبرای شروع بازی روی دکمه زیر کلیک کنید:"
+            ),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🆕 ایجاد بازی", callback_data="create_game")]
+            ])
+        )
+    ]
+    await update.inline_query.answer(results, cache_time=1)
+
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # دستورات شروع و اجرای بازی (هم در پی‌وی و هم در گروه)
+    # دستورات شروع و اجرای بازی
     app.add_handler(CommandHandler("start", start_or_game_menu))
     app.add_handler(CommandHandler("game", start_or_game_menu))
+
+    # هندلر متن برای دریافت رمز عبور در پی‌وی
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_password))
+
+    # هندلر حالت اینلاین (Inline Mode)
+    app.add_handler(InlineQueryHandler(inline_query_handler))
 
     # هندلرهای دکمه‌های شیشه‌ای (Callback Queries)
     app.add_handler(CallbackQueryHandler(create_game, pattern="^create_game$"))
