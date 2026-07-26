@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -6,7 +6,7 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 
-from config import BOT_TOKEN, WEBAPP_URL
+from config import BOT_TOKEN
 from game.handlers import (
     create_game,
     join_game,
@@ -20,11 +20,10 @@ from game.handlers import (
 )
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
+async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """منوی اصلی ربات که هم با دستور /start و هم /game در گروه یا پی‌وی کار می‌کند."""
     keyboard = [
         [InlineKeyboardButton("🆕 ایجاد بازی", callback_data="create_game")],
-        [InlineKeyboardButton("🎲 پیوستن به بازی", callback_data="join_game")],
         [InlineKeyboardButton("📖 آموزش", callback_data="help")],
         [InlineKeyboardButton("⚙️ تنظیمات", callback_data="settings")],
         [InlineKeyboardButton("ℹ️ درباره بازی", callback_data="about")],
@@ -34,17 +33,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "🎮 به DotVerse خوش اومدی!\n\n"
-        "لطفاً یکی از گزینه‌های زیر را انتخاب کن.",
+        "برای شروع یا مدیریت بازی، لطفاً یکی از گزینه‌های زیر را انتخاب کن:",
         reply_markup=reply_markup,
     )
 
 
 def main():
-
     app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
+    # دستورات شروع و اجرای بازی (هم در پی‌وی و هم در گروه)
+    app.add_handler(CommandHandler("start", start_or_game_menu))
+    app.add_handler(CommandHandler("game", start_or_game_menu))
 
+    # هندلرهای دکمه‌های شیشه‌ای (Callback Queries)
     app.add_handler(CallbackQueryHandler(create_game, pattern="^create_game$"))
     app.add_handler(CallbackQueryHandler(join_game, pattern="^join_game$"))
     app.add_handler(CallbackQueryHandler(select_grid_size, pattern="^select_grid_size$"))
