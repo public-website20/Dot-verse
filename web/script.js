@@ -1,5 +1,5 @@
 /* ==========================================
-    DotVerse - Complete Game Logic (script.js)
+    DotVerse - Clean Game Logic (script.js)
     ========================================== */
 
 const PLAYER_COLORS = [
@@ -19,14 +19,14 @@ const PLAYER_ANIMALS = [
 const urlParams = new URLSearchParams(window.location.search);
 let gridSize = parseInt(urlParams.get('size')) || 5;
 
-let isCreator = true; // آیا کاربر سازنده است؟
-const maxPlayersLimit = 20; // سقف تعداد بازیکنان
+let isCreator = true;
+const maxPlayersLimit = 20;
 
 let boardState = {
     size: gridSize,
     lines: {},
     squares: [],
-    players: [], // لیست بازیکنان در ابتدا خالی است
+    players: [], // لیست بازیکنان کاملاً خالی
     currentTurnIndex: 0,
     timer: 20,
     timerInterval: null
@@ -48,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gridSizeSelect.value = gridSize;
     }
 
-    // کلیک روی دکمه ساخت اتاق توسط سازنده (بدون نیاز به رمز)
+    // ساخت اتاق توسط سازنده
     if (createRoomBtn) {
         createRoomBtn.addEventListener('click', () => {
             if (gridSizeSelect) {
@@ -56,7 +56,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 boardState.size = gridSize;
             }
 
-            // گرفتن اطلاعات سازنده از تلگرام
             let telegramUser = null;
             if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
                 telegramUser = window.Telegram.WebApp.initDataUnsafe.user;
@@ -64,7 +63,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const creatorName = telegramUser ? (telegramUser.first_name + (telegramUser.last_name ? ' ' + telegramUser.last_name : '')) + " (سازنده)" : "سازنده";
             const creatorId = telegramUser ? telegramUser.id : 101;
 
-            // اضافه کردن سازنده به عنوان اولین بازیکن
             boardState.players = [{
                 id: creatorId,
                 name: creatorName,
@@ -83,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // کلیک روی دکمه پیوستن به بازی توسط سایر شرکت‌کنندگان
+    // پیوستن به بازی توسط سایرین
     if (joinRoomBtn) {
         joinRoomBtn.addEventListener('click', () => {
             if (boardState.players.length >= maxPlayersLimit) {
@@ -119,7 +117,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // شروع نهایی بازی توسط سازنده
     if (adminStartBtn) {
         adminStartBtn.addEventListener('click', () => {
             if (boardState.players.length === 0) {
@@ -313,7 +310,7 @@ function checkForCompletedSquares(player) {
                     timestamp: timestamp
                 });
                 player.score += 1;
-                count++;
+                    count++;
 
                 addSquareToLine(topId, player, timestamp);
                 addSquareToLine(bottomId, player, timestamp);
