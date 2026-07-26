@@ -28,10 +28,10 @@ CORRECT_PASSWORD = "Dv032000vD"
 
 
 async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """منوی اصلی ربات که با بررسی رمز عبور کار می‌کند."""
+    """منوی اصلی ربات که با بررسی رمز عبور و پشتیبانی از Deep Link کار می‌کند."""
     user_id = update.effective_user.id
 
-    # بررسی احراز هویت کاربر (استفاده از bot_data برای دسترسی سراسری)
+    # بررسی احراز هویت کاربر
     if not context.bot_data.get(f"authenticated_{user_id}", False):
         context.user_data["waiting_for_password"] = True
         await update.message.reply_text(
@@ -39,7 +39,15 @@ async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # اگر کاربر قبلاً رمز را وارد کرده بود، منوی بازی نمایش داده شود
+    # بررسی اینکه آیا کاربر از طریق دکمه‌ی اینلاین (گروه/چت دوستان) وارد شده است یا خیر
+    args = context.args
+    if args and args[0] == "create":
+        # اگر با پارامتر ایجاد آمده بود، مستقیماً مرحله‌ی ساخت بازی یا انتخاب ابعاد را صدا می‌زنیم
+        # (اگر تابع انتخابی دارید می‌توانید به جای آن تابع دلخواه را صدا بزنید)
+        await select_grid_size(update, context)
+        return
+
+    # منوی پیش‌فرض پی‌وی
     keyboard = [
         [InlineKeyboardButton("🆕 ایجاد بازی", callback_data="create_game")],
         [InlineKeyboardButton("📖 آموزش", callback_data="help")],
@@ -64,7 +72,6 @@ async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         password_input = update.message.text
 
         if password_input == CORRECT_PASSWORD:
-            # ذخیره در bot_data تا در حالت اینلاین هم شناخته شود
             context.bot_data[f"authenticated_{user_id}"] = True
             context.user_data["waiting_for_password"] = False
             await update.message.reply_text(
@@ -75,10 +82,10 @@ async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """مدیریت حالت اینلاین (وقتی آیدی ربات در چت/گروه تایپ می‌شود)"""
+    """مدیریت حالت اینلاین در گروه‌ها و چت دوستان"""
     user_id = update.inline_query.from_user.id
 
-    # بررسی اینکه آیا کاربری که دارد اینلاین را استفاده می‌کند رمز را زده یا نه
+    # بررسی احراز هویت
     if not context.bot_data.get(f"authenticated_{user_id}", False):
         results = [
             InlineQueryResultArticle(
@@ -93,20 +100,20 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.inline_query.answer(results, cache_time=1)
         return
 
-    bot_username = "Dot_GameBot"
+    bot_username = "Dot_GameBot" # آیدی ربات شما
     
-    # تعریف ساختار دکمه لینک برای هدایت صحیح به پی‌وی
+    # دکمه‌ای که کاربر را برای ساخت بازی به پی‌وی هدایت می‌کند
     reply_markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🆕 ایجاد بازی در پی‌وی ربات", url=f"https://t.me/{bot_username}?start=create")]
+        [InlineKeyboardButton("🎮 ساخت و مدیریت بازی در پی‌وی ربات", url=f"https://t.me/{bot_username}?start=create")]
     ])
 
     results = [
         InlineQueryResultArticle(
             id=str(uuid.uuid4()),
             title="🎮 شروع بازی DotVerse",
-            description="برای شروع بازی گروهی یا دونفره کلیک کنید",
+            description="برای ساخت و مدیریت بازی کلیک کنید",
             input_message_content=InputTextMessageContent(
-                message_text="🎮 به بازی DotVerse خوش آمدید!\n\nبرای شروع بازی روی دکمه زیر کلیک کنید:"
+                message_text="🎮 لابی بازی DotVerse\n\nبرای ساخت بازی جدید و انتخاب گزینه‌ها، روی دکمه زیر کلیک کنید تا وارد پی‌وی ربات شوید:"
             ),
             reply_markup=reply_markup
         )
@@ -124,7 +131,7 @@ def main():
     # هندلر متن برای دریافت رمز عبور در پی‌وی
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_password))
 
-    # هندلر حالت اینلاین (Inline Mode)
+    # هندلر حالت اینلاین
     app.add_handler(InlineQueryHandler(inline_query_handler))
 
     # هندلرهای دکمه‌های شیشه‌ای (Callback Queries)
