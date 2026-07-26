@@ -2,6 +2,27 @@
     DotVerse - Production Game Logic (script.js)
     ========================================== */
 
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.x.x/firebase-app.js";
+import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.x.x/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDt-Yzy6S9VK3ucd-sVM9nTtfahcotFncc",
+  authDomain: "dotverse-9850e.firebaseapp.com",
+  databaseURL: "https://dotverse-9850e-default-rtdb.firebaseio.com",
+  projectId: "dotverse-9850e",
+  storageBucket: "dotverse-9850e.firebasestorage.app",
+  messagingSenderId: "539684224862",
+  appId: "1:539684224862:web:8aa2f7b4de430b9e4ad9cf"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// دریافت شناسه اتاق از URL (برای اتصال چند بازیکن به یک صفحه مشترک)
+const urlParams = new URLSearchParams(window.location.search);
+const roomId = urlParams.get('room') || 'default_room';
+const roomRef = ref(db, 'rooms/' + roomId);
+
 const PLAYER_COLORS = [
     "#38bdf8", "#ef4444", "#22c55e", "#f59e0b", "#a855f7",
     "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
@@ -32,6 +53,22 @@ let boardState = {
     gameStarted: false
 };
 
+// همگام‌سازی زنده اطلاعات از دیتابیس ابری فایربیس
+onValue(roomRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+        boardState = data;
+        gridSize = boardState.size || 5;
+        updateUI();
+        renderBoard();
+        
+        const welcomeOverlay = document.getElementById('welcome-overlay');
+        if (boardState.gameStarted && welcomeOverlay) {
+            welcomeOverlay.classList.add('hidden');
+        }
+    }
+});
+
 document.addEventListener('DOMContentLoaded', () => {
     const welcomeOverlay = document.getElementById('welcome-overlay');
     const createRoomBtn = document.getElementById('create-room-btn');
@@ -45,7 +82,6 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Telegram.WebApp.expand();
     }
 
-    // دریافت اطلاعات واقعی کاربر از تلگرام
     function getTelegramUser() {
         if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
             const u = window.Telegram.WebApp.initDataUnsafe.user;
@@ -54,15 +90,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 name: (u.first_name || '') + (u.last_name ? ' ' + u.last_name : '') || 'کاربر تلگرام'
             };
         }
-        // حالت فال‌بک برای تست در مرورگر عادی (غیر تلگرام)
-        const randomId = Math.floor(Math.random() * 1000000);
+        let storedId = localStorage.getItem('dotverse_user_id');
+        if (!storedId) {
+            storedId = Math.floor(Math.random() * 1000000);
+            localStorage.setItem('dotverse_user_id', storedId);
+        } else {
+            storedId = parseInt(storedId);
+        }
         return {
-            id: randomId,
-            name: `کاربر_${randomId.toString().slice(-4)}`
+            id: storedId,
+            name: `کاربر_${storedId.toString().slice(-4)}`
         };
     }
 
-    // ساخت اتاق جدید (توسط سازنده)
     if (createRoomBtn) {
         createRoomBtn.addEventListener('click', () => {
             const user = getTelegramUser();
@@ -73,7 +113,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // اضافه کردن سازنده به عنوان اولین بازیکن
             boardState.players.push({
                 id: user.id,
                 name: user.name + " (سازنده)",
@@ -86,12 +125,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (gridSizeSelect) gridSizeSelect.disabled = false;
             if (timerModeSelect) timerModeSelect.disabled = false;
 
+            set(roomRef, boardState);
             updateUI();
-            alert('اتاق ساخته شد! حالا لینک دعوت را برای دوستانتان بفرستید تا به بازی بپیوندند.');
+            alert('اتاق ساخته شد! حالا لینک دعوت را برای دوستانتان بفرستید.');
         });
     }
 
-    // پیوستن به اتاق (توسط سایر بازیکنان)
     if (joinRoomBtn) {
         joinRoomBtn.addEventListener('click', () => {
             if (boardState.gameStarted) {
@@ -118,15 +157,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 animal: PLAYER_ANIMALS[boardState.players.length % PLAYER_ANIMALS.length]
             });
 
+            set(roomRef, boardState);
             updateUI();
-            alert('با موفقیت به بازی ملحق شدید! منتظر بمانید تا سازنده بازی را شروع کند.');
+            alert('با موفقیت به بازی ملحق شدید!');
         });
     }
 
-    // اتمام عضوگیری و شروع بازی توسط سازنده
     if (adminStartBtn) {
         adminStartBtn.addEventListener('click', () => {
-            if (!isCreator) {
+            if (!isCreator && boardState.players.length > 0 && boardState.players[0].id !== getTelegramUser().id) {
                 alert('فقط سازنده اتاق می‌تواند بازی را شروع کند!');
                 return;
             }
@@ -148,6 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
             boardState.gameStarted = true;
             welcomeOverlay.classList.add('hidden');
             
+            set(roomRef, boardState);
             updateUI();
             renderBoard();
             startTimer();
@@ -161,6 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function removePlayer(playerId) {
     if (!isCreator || boardState.gameStarted) return;
     boardState.players = boardState.players.filter(p => p.id !== playerId);
+    set(roomRef, boardState);
     updateUI();
 }
 
@@ -282,7 +323,19 @@ function handleLineClick(lineId, lineElement, type) {
     if (boardState.lines[lineId]) return;
     if (boardState.players.length === 0) return;
 
+    // بررسی نوبت بازیکن جاری
+    let currentUserId;
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+        currentUserId = window.Telegram.WebApp.initDataUnsafe.user.id;
+    } else {
+        currentUserId = parseInt(localStorage.getItem('dotverse_user_id'));
+    }
+
     const currentPlayer = boardState.players[boardState.currentTurnIndex];
+    if (currentPlayer.id !== currentUserId) {
+        alert('نوبت شما نیست!');
+        return;
+    }
 
     boardState.lines[lineId] = {
         defaultColor: currentPlayer.color,
@@ -301,6 +354,9 @@ function handleLineClick(lineId, lineElement, type) {
         updateUI();
         renderBoard();
     }
+
+    // آپدیت نهایی در دیتابیس فایربیس
+    set(roomRef, boardState);
 }
 
 function checkForCompletedSquares(player) {
@@ -397,6 +453,7 @@ function startTimer() {
 
         if (boardState.timer <= 0) {
             nextTurn();
+            set(roomRef, boardState);
         }
     }, 1000);
 }
@@ -492,3 +549,5 @@ function setupDrawer() {
     if (closeBtn) closeBtn.addEventListener('click', toggleDrawer);
     if (overlay) overlay.addEventListener('click', toggleDrawer);
 }
+
+window.removePlayer = removePlayer;
