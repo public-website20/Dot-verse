@@ -19,6 +19,10 @@ const PLAYER_ANIMALS = [
 const urlParams = new URLSearchParams(window.location.search);
 const gridSize = parseInt(urlParams.get('size')) || 8;
 
+// فرض بر این است که آیا کاربر فعلی سازنده است یا خیر (قابل تغییر بر اساس تلگرام وب‌اپ)
+let isCreator = true; 
+const maxPlayersLimit = 10; // سقف تعداد بازیکنان
+
 let boardState = {
     size: gridSize,
     lines: {},
@@ -39,15 +43,22 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Telegram.WebApp.expand();
     }
 
-    // رویداد کلیک روی دکمه شروع بازی در پیام شناور
-    if (startBtnModal) {
-        startBtnModal.addEventListener('click', () => {
-            // مخفی کردن پیام خوش‌آمدگویی
-            if (welcomeOverlay) {
-                welcomeOverlay.classList.add('hidden');
+    // مدیریت نمایش دکمه شروع بازی فقط برای سازنده
+    if (startBtnModal && welcomeOverlay) {
+        if (!isCreator) {
+            // اگر سازنده نیست، دکمه شروع را پنهان یا متن را عوض کنیم تا منتظر بماند
+            const modalContent = welcomeOverlay.querySelector('.welcome-modal');
+            if (modalContent) {
+                modalContent.querySelector('p').textContent = "لطفاً صبر کنید تا سازنده بازی را شروع کند...";
+                startBtnModal.style.display = 'none';
             }
-            // شروع بازی و تایمر
-            initGame();
+        }
+        
+        startBtnModal.addEventListener('click', () => {
+            if (isCreator) {
+                welcomeOverlay.classList.add('hidden');
+                initGame();
+            }
         });
     }
 
@@ -56,8 +67,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initGame() {
+    // نمونه بازیکنان اولیه (شامل خود سازنده)
     const rawPlayers = [
-        { id: 101, name: "علی" },
+        { id: 101, name: "Abolfazl (سازنده)" },
         { id: 102, name: "رضا" }
     ];
 
@@ -71,6 +83,16 @@ function initGame() {
     updateUI();
     renderBoard();
     startTimer();
+}
+
+// تابع حذف بازیکن توسط سازنده
+function removePlayer(playerId) {
+    if (!isCreator) return;
+    boardState.players = boardState.players.filter(p => p.id !== playerId);
+    if (boardState.currentTurnIndex >= boardState.players.length) {
+        boardState.currentTurnIndex = 0;
+    }
+    updateUI();
 }
 
 function renderBoard() {
@@ -160,7 +182,6 @@ function createLineElement(container, x, y, spacing, thickness, type, r, c) {
 
 function applyLineStyle(lineElement, lineData, type) {
     const adjacentSquares = lineData.squares || [];
-
     const uniqueOwners = [];
     const seenPlayerIds = new Set();
     for (const sq of adjacentSquares) {
@@ -189,6 +210,7 @@ function applyLineStyle(lineElement, lineData, type) {
 
 function handleLineClick(lineId, lineElement, type) {
     if (boardState.lines[lineId]) return;
+    if (boardState.players.length === 0) return;
 
     const currentPlayer = boardState.players[boardState.currentTurnIndex];
 
@@ -247,9 +269,9 @@ function checkForCompletedSquares(player) {
                 addSquareToLine(bottomId, player, timestamp);
                 addSquareToLine(leftId, player, timestamp);
                 addSquareToLine(rightId, player, timestamp);
-            }
-        }
-    }
+          }
+      }
+  }
 
     if (count > 0) {
         updateUI();
@@ -316,14 +338,10 @@ function updateTimerUI() {
             timerEl.classList.remove('warning');
         }
     }
-
-    const miniTimerEl = document.getElementById('active-player-timer');
-    if (miniTimerEl) {
-        miniTimerEl.textContent = `⏳ ${boardState.timer}s`;
-    }
 }
 
 function nextTurn() {
+    if (boardState.players.length === 0) return;
     boardState.currentTurnIndex = (boardState.currentTurnIndex + 1) % boardState.players.length;
     updateUI();
     resetTimer();
@@ -331,9 +349,18 @@ function nextTurn() {
 
 function updateUI() {
     const banner = document.getElementById('turn-banner');
-    const currentPlayer = boardState.players[boardState.currentTurnIndex];
-    if (banner) {
-        banner.innerHTML = `نوبت بازی: <span style="color:${currentPlayer.color}; font-weight:900;">${currentPlayer.animal} ${currentPlayer.name}</span>`;
+    if (boardState.players.length > 0) {
+        const currentPlayer = boardState.players[boardState.currentTurnIndex];
+        if (banner) {
+            banner.innerHTML = `نوبت بازی: <span style="color:${currentPlayer.color}; font-weight:900;">${currentPlayer.animal} ${currentPlayer.name}</span>`;
+        }
+    } else {
+        if (banner) banner.textContent = "بازیکنی در بازی نیست!";
+    }
+
+    const drawerHeaderTitle = document.querySelector('.drawer-header h3');
+    if (drawerHeaderTitle) {
+        drawerHeaderTitle.innerHTML = `👥 بازیکنان و امتیازات (${boardState.players.length}/${maxPlayersLimit})`;
     }
 
     const listContainer = document.getElementById('players-list');
@@ -346,16 +373,24 @@ function updateUI() {
         const item = document.createElement('div');
         item.className = `player-item ${isCurrent ? 'active-turn' : ''}`;
         
+        let deleteBtnHtml = '';
+        // اگر کاربر سازنده باشد، دکمه ضربدر برای حذف نمایش داده می‌شود
+        if (isCreator) {
+            deleteBtnHtml = `<button class="remove-player-btn" onclick="removePlayer(${player.id})" title="حذف بازیکن" style="background:none; border:none; color:#ef4444; font-size:16px; cursor:pointer; margin-right:8px;">❌</button>`;
+        }
+
         item.innerHTML = `
-            <div class="player-info">
-                <span class="player-badge" style="background:${player.color};">${player.animal}</span>
+            <div class="player-info" style="display:flex; align-items:center; gap:8px;">
+                <span class="player-badge" style="background:${player.color}; padding:4px 8px; border-radius:4px;">${player.animal}</span>
                 <div>
                     <div><b>${player.name}</b> ${isCurrent ? '📌' : ''}</div>
-                    ${isCurrent ? `<div class="player-timer-mini" id="active-player-timer">⏳ ${boardState.timer}s</div>` : ''}
                 </div>
             </div>
-            <b>امتیاز: ${player.score}</b>
-        `;
+            <div style="display:flex; align-items:center;">
+                <b style="margin-left:8px;">امتیاز: ${player.score}</b>
+                ${deleteBtnHtml}
+            </div>
+      `;
 
         listContainer.appendChild(item);
     });
