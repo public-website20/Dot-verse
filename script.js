@@ -102,6 +102,37 @@ function getTelegramUser() {
     };
 }
 
+// تابع کپی کردن لینک دعوت اتاق
+function copyRoomLink() {
+    const currentUrl = window.location.href.split('?')[0] + `?room=${roomId}`;
+    
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(currentUrl).then(() => {
+            alert('🔗 لینک دعوت اتاق با موفقیت کپی شد!');
+        }).catch(err => {
+            fallbackCopyText(currentUrl);
+        });
+    } else {
+        fallbackCopyText(currentUrl);
+    }
+}
+
+function fallbackCopyText(text) {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";  // جلوگیری از اسکرول صفحه
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+        document.execCommand('copy');
+        alert('🔗 لینک دعوت اتاق با موفقیت کپی شد!');
+    } catch (err) {
+        alert('کپی لینک انجام نشد. لطفاً لینک بالا را دستی کپی کنید: \n' + text);
+    }
+    document.body.removeChild(textArea);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const welcomeOverlay = document.getElementById('welcome-overlay');
     const settingsOverlay = document.getElementById('settings-overlay');
@@ -111,11 +142,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const gridSizeSelect = document.getElementById('grid-size-select');
     const timerModeSelect = document.getElementById('timer-mode-select');
     const adminStartBtn = document.getElementById('admin-start-btn');
+    const copyLinkWelcomeBtn = document.getElementById('copy-link-welcome-btn');
+    const copyLinkDrawerBtn = document.getElementById('copy-link-drawer-btn');
 
     if (window.Telegram && window.Telegram.WebApp) {
         window.Telegram.WebApp.ready();
         window.Telegram.WebApp.expand();
     }
+
+    // اتصال رویداد دکمه‌های کپی لینک
+    if (copyLinkWelcomeBtn) copyLinkWelcomeBtn.addEventListener('click', copyRoomLink);
+    if (copyLinkDrawerBtn) copyLinkDrawerBtn.addEventListener('click', copyRoomLink);
 
     function updateGridOptionsBasedOnPlayers() {
         if (!gridSizeSelect) return;
