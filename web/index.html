@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DotVerse - بازی نقطه و خط</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- هدر بالای صفحه شامل عنوان و دکمه همبرگری (سه خط) در سمت راست -->
+        <header class="game-header">
+            <h1 class="game-title">DotVerse</h1>
+            <div class="menu-btn" id="menu-toggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </header>
+
+        <!-- پنل کشویی بازیکنان و امتیازات -->
+        <div class="drawer-overlay" id="drawer-overlay"></div>
+        <div class="side-drawer" id="side-drawer">
+            <div class="drawer-header">
+                <h3>👥 بازیکنان و امتیازات</h3>
+                <span class="close-btn" id="drawer-close">✕</span>
+            </div>
+            <div class="players-list" id="players-list">
+                <!-- لیست بازیکنان به‌صورت پویا پر می‌شود -->
+            </div>
+        </div>
+
+        <!-- پیام اعلان نوبت بازیکن -->
+        <div class="turn-banner" id="turn-banner">نوبت بازیکن: ...</div>
+
+        <!-- کانتینر اصلی زمین بازی -->
+        <div class="board-wrapper">
+            <div id="board-container"></div>
+        </div>
+
+        <!-- تایمر شناور روی صفحه -->
+        <div class="floating-timer" id="floating-timer">⏳ 20s</div>
+
+        <!-- کادر پیام شناور و دکمه شروع بازی -->
+        <div class="overlay" id="welcome-overlay">
+            <div class="welcome-modal">
+                <h2>👋 به DotVerse خوش آمدید!</h2>
+                <p>سلام! برای شروع بازی آنلاین آماده‌اید؟ روی دکمه زیر کلیک کنید تا بازی آغاز شود و وارد نبرد نقطه و خط شوید!</p>
+                <button class="start-game-modal-btn" id="start-game-modal-btn">شروع بازی 🎮</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
