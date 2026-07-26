@@ -6,19 +6,18 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.x.x/firebas
 import { getDatabase, ref, set, onValue, update } from "https://www.gstatic.com/firebasejs/10.x.x/firebase-database.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDt-Yzy6S9VK3ucd-sVM9nTtfahcotFncc",
-  authDomain: "dotverse-9850e.firebaseapp.com",
-  databaseURL: "https://dotverse-9850e-default-rtdb.firebaseio.com",
-  projectId: "dotverse-9850e",
-  storageBucket: "dotverse-9850e.firebasestorage.app",
-  messagingSenderId: "539684224862",
-  appId: "1:539684224862:web:8aa2f7b4de430b9e4ad9cf"
+    apiKey: "AIzaSyDt-Yzy6S9VK3ucd-sVM9nTtfahcotFncc",
+    authDomain: "dotverse-9850e.firebaseapp.com",
+    databaseURL: "https://dotverse-9850e-default-rtdb.firebaseio.com",
+    projectId: "dotverse-9850e",
+    storageBucket: "dotverse-9850e.firebasestorage.app",
+    messagingSenderId: "539684224862",
+    appId: "1:539684224862:web:8aa2f7b4de430b9e4ad9cf"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// دریافت شناسه اتاق از URL (برای اتصال چند بازیکن به یک صفحه مشترک)
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get('room') || 'default_room';
 const roomRef = ref(db, 'rooms/' + roomId);
@@ -37,28 +36,27 @@ const PLAYER_ANIMALS = [
     "🐝", "🦋", "🐬", "🐢", "🐿️"
 ];
 
-let gridSize = 5;
+let gridSize = 6;
 let isCreator = false; 
 const maxPlayersLimit = 20;
 
 let boardState = {
-    size: 5,
+    size: 6,
     lines: {},
     squares: [],
     players: [], 
     currentTurnIndex: 0,
-    timerSetting: 5,
-    timer: 5,
+    timerSetting: 300, // پیش‌فرض 5 دقیقه (300 ثانیه)
+    timer: 300,
     timerInterval: null,
     gameStarted: false
 };
 
-// همگام‌سازی زنده اطلاعات از دیتابیس ابری فایربیس
 onValue(roomRef, (snapshot) => {
     const data = snapshot.val();
     if (data) {
         boardState = data;
-        gridSize = boardState.size || 5;
+        gridSize = boardState.size || 6;
         updateUI();
         renderBoard();
         
@@ -103,6 +101,36 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    function updateGridOptionsBasedOnPlayers() {
+        if (!gridSizeSelect) return;
+        const count = boardState.players.length;
+        let options = [];
+
+        if (count >= 1 && count <= 4) {
+            options = [6, 8, 10, 12];
+        } else if (count >= 5 && count <= 8) {
+            options = [8, 10, 12, 14];
+        } else if (count >= 9 && count <= 12) {
+            options = [10, 12, 14, 16];
+        } else if (count >= 13 && count <= 16) {
+            options = [12, 14, 16, 18];
+        } else {
+            options = [14, 16, 18, 20];
+        }
+
+        gridSizeSelect.innerHTML = '';
+        options.forEach((size, idx) => {
+            const opt = document.createElement('option');
+            opt.value = size;
+            opt.textContent = `${size} در ${size}`;
+            if (idx === 0) opt.selected = true;
+            gridSizeSelect.appendChild(opt);
+        });
+
+        gridSize = options[0];
+        boardState.size = gridSize;
+    }
+
     if (createRoomBtn) {
         createRoomBtn.addEventListener('click', () => {
             const user = getTelegramUser();
@@ -121,13 +149,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 score: 0
             });
 
+            updateGridOptionsBasedOnPlayers();
             if (adminStartBtn) adminStartBtn.style.display = 'block';
             if (gridSizeSelect) gridSizeSelect.disabled = false;
             if (timerModeSelect) timerModeSelect.disabled = false;
 
             set(roomRef, boardState);
             updateUI();
-            alert('اتاق ساخته شد! حالا لینک دعوت را برای دوستانتان بفرستید.');
+            alert('اتاق ساخته شد! لینک دعوت را برای دوستانتان بفرستید.');
         });
     }
 
@@ -157,9 +186,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 animal: PLAYER_ANIMALS[boardState.players.length % PLAYER_ANIMALS.length]
             });
 
+            updateGridOptionsBasedOnPlayers();
             set(roomRef, boardState);
             updateUI();
             alert('با موفقیت به بازی ملحق شدید!');
+        });
+    }
+
+    if (timerModeSelect) {
+        timerModeSelect.addEventListener('change', () => {
+            const val = timerModeSelect.value;
+            if (val === "none") {
+                boardState.timerSetting = "none";
+            } else {
+                boardState.timerSetting = parseInt(val) * 60; // تبدیل دقیقه به ثانیه
+            }
         });
     }
 
@@ -177,11 +218,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (gridSizeSelect) {
                 gridSize = parseInt(gridSizeSelect.value);
                 boardState.size = gridSize;
-            }
-
-            if (timerModeSelect) {
-                const val = timerModeSelect.value;
-                boardState.timerSetting = val === "none" ? "none" : parseInt(val);
             }
 
             boardState.gameStarted = true;
@@ -323,7 +359,6 @@ function handleLineClick(lineId, lineElement, type) {
     if (boardState.lines[lineId]) return;
     if (boardState.players.length === 0) return;
 
-    // بررسی نوبت بازیکن جاری
     let currentUserId;
     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
         currentUserId = window.Telegram.WebApp.initDataUnsafe.user.id;
@@ -355,7 +390,6 @@ function handleLineClick(lineId, lineElement, type) {
         renderBoard();
     }
 
-    // آپدیت نهایی در دیتابیس فایربیس
     set(roomRef, boardState);
 }
 
@@ -469,8 +503,8 @@ function updateTimerUI() {
             timerEl.textContent = "⏳ زمان: نامحدود";
             timerEl.classList.remove('warning');
         } else {
-            timerEl.textContent = `⏳ زمان باقی‌مانده: ${boardState.timer}s`;
-            if (boardState.timer <= 1) {
+            timerEl.textContent = `⏳ زمان باقی‌مانده: ${boardState.timer} ثانیه`;
+            if (boardState.timer <= 5) {
                 timerEl.classList.add('warning');
             } else {
                 timerEl.classList.remove('warning');
