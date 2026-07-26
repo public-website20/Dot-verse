@@ -16,7 +16,9 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 const urlParams = new URLSearchParams(window.location.search);
-const roomId = urlParams.get('room') || 'room_' + Math.random().toString(36).substring(2, 8);
+// اگر پارامتر room وجود داشته باشد از آن استفاده می کند، در غیر این صورت اتاق جدید می سازد
+const urlRoomId = urlParams.get('room');
+const roomId = urlRoomId || 'room_' + Math.random().toString(36).substring(2, 8);
 const roomRef = db.ref('rooms/' + roomId);
 
 const PLAYER_COLORS = [
@@ -52,15 +54,19 @@ let boardState = {
 
 roomRef.on('value', (snapshot) => {
     const data = snapshot.val();
+    const currentUserId = getTelegramUser().id;
+    const welcomeOverlay = document.getElementById('welcome-overlay');
+    const settingsOverlay = document.getElementById('settings-overlay');
+    const adminFinishJoinBtn = document.getElementById('admin-finish-join-btn');
+    const createRoomBtn = document.getElementById('create-room-btn');
+    const joinRoomBtn = document.getElementById('join-room-btn');
+    const copyLinkWelcomeBtn = document.getElementById('copy-link-welcome-btn');
+
     if (data) {
         boardState = data;
         gridSize = boardState.size || 6;
         updateUI();
         renderBoard();
-        
-        const welcomeOverlay = document.getElementById('welcome-overlay');
-        const settingsOverlay = document.getElementById('settings-overlay');
-        const adminFinishJoinBtn = document.getElementById('admin-finish-join-btn');
 
         if (boardState.gameStarted) {
             if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
@@ -69,17 +75,44 @@ roomRef.on('value', (snapshot) => {
             if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
         }
 
-        let currentUserId = getTelegramUser().id;
-        // بررسی دقیق سازنده (نفر اول لیست بازیکنان)
+        // بررسی اینکه آیا کاربر فعلی در لیست بازیکنان به عنوان نفر اول (سازنده) وجود دارد
         if (boardState.players.length > 0 && boardState.players[0].id === currentUserId) {
             isCreator = true;
-            if (adminFinishJoinBtn && !boardState.gameStarted && !boardState.settingsOpened) {
-                adminFinishJoinBtn.style.display = 'block';
-            }
         } else {
             isCreator = false;
-            if (adminFinishJoinBtn) adminFinishJoinBtn.style.display = 'none';
         }
+    } else {
+        // اگر اتاق هنوز در دیتابیس وجود ندارد و کاربر با لینک وارد شده است
+        if (urlRoomId) {
+            isCreator = false;
+        } else {
+            // اگر کاربر سازنده اصلی است و اتاق خالی است
+            isCreator = true;
+        }
+    }
+
+    // مدیریت نمایش دکمه‌ها در صفحه خوش‌آمدگویی بر اساس سازنده بودن
+    if (welcomeOverlay && !boardState.gameStarted) {
+        if (isCreator) {
+            if (createRoomBtn) createRoomBtn.style.display = 'block';
+            if (copyLinkWelcomeBtn) copyLinkWelcomeBtn.style.display = 'block';
+            if (joinRoomBtn) joinRoomBtn.style.display = 'none';
+        } else {
+            if (createRoomBtn) createRoomBtn.style.display = 'none';
+            if (copyLinkWelcomeBtn) copyLinkWelcomeBtn.style.display = 'none';
+            if (joinRoomBtn) {
+                joinRoomBtn.style.display = 'block';
+                joinRoomBtn.textContent = 'پیوستن به بازی';
+            }
+        }
+    }
+
+    if (boardState.players.length > 0 && boardState.players[0].id === currentUserId) {
+        if (adminFinishJoinBtn && !boardState.gameStarted && !boardState.settingsOpened) {
+            adminFinishJoinBtn.style.display = 'block';
+        }
+    } else {
+        if (adminFinishJoinBtn) adminFinishJoinBtn.style.display = 'none';
     }
 });
 
@@ -105,20 +138,18 @@ function getTelegramUser() {
     };
 }
 
-// تابع اصلاح‌شده برای ساخت لینک کوتاه یا لینک مستقیم مینی‌اپ تلگرام
+// تابع اصلاح‌شده برای ساخت لینک مینی‌اپ تلگرام (بدون باز شدن در مرورگر خارجی)
 function copyRoomLink() {
-    const botUsername = "YourBotUsername"; // نام کاربری ربات شما بدون @ (در صورت داشتن بات)
-    const miniAppName = "DotVerse"; // نام کوتاه مینی اپ در بات فادر
+    // نام کاربری ربات تلگرام خود را حتماً اینجا جایگزین کنید (بدون @)
+    const botUsername = "DotVerseBot"; 
+    const miniAppName = "game"; // نام کوتاه مینی اپ ثبت شده در BotFather
     
+    // استفاده از استاندارد t.me جهت باز شدن مستقیم داخل اپلیکیشن تلگرام (مینی اپ)
     let shareUrl = `https://t.me/${botUsername}/${miniAppName}?startapp=${roomId}`;
-    
-    if (botUsername === "YourBotUsername") {
-        shareUrl = window.location.href.split('?')[0] + `?room=${roomId}`;
-    }
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(shareUrl).then(() => {
-            alert('🔗 لینک دعوت اتاق با موفقیت کپی شد!');
+            alert('🔗 لینک دعوت مینی‌اپ با موفقیت کپی شد!');
         }).catch(() => {
             fallbackCopyText(shareUrl);
         });
@@ -136,7 +167,7 @@ function fallbackCopyText(text) {
     textArea.select();
     try {
         document.execCommand('copy');
-        alert('🔗 لینک دعوت اتاق با موفقیت کپی شد!');
+        alert('🔗 لینک دعوت مینی‌اپ با موفقیت کپی شد!');
     } catch (err) {
         alert('لینک دعوت: \n' + text);
     }
