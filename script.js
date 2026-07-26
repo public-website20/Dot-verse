@@ -46,10 +46,11 @@ let boardState = {
     squares: [],
     players: [], 
     currentTurnIndex: 0,
-    timerSetting: 300, // پیش‌فرض 5 دقیقه (300 ثانیه)
+    timerSetting: 300, 
     timer: 300,
     timerInterval: null,
-    gameStarted: false
+    gameStarted: false,
+    settingsOpened: false
 };
 
 onValue(roomRef, (snapshot) => {
@@ -61,16 +62,23 @@ onValue(roomRef, (snapshot) => {
         renderBoard();
         
         const welcomeOverlay = document.getElementById('welcome-overlay');
-        if (boardState.gameStarted && welcomeOverlay) {
-            welcomeOverlay.classList.add('hidden');
+        const settingsOverlay = document.getElementById('settings-overlay');
+
+        if (boardState.gameStarted) {
+            if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
+            if (settingsOverlay) settingsOverlay.classList.add('hidden');
+        } else if (boardState.settingsOpened) {
+            if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
         }
     }
 });
 
 document.addEventListener('DOMContentLoaded', () => {
     const welcomeOverlay = document.getElementById('welcome-overlay');
+    const settingsOverlay = document.getElementById('settings-overlay');
     const createRoomBtn = document.getElementById('create-room-btn');
     const joinRoomBtn = document.getElementById('join-room-btn');
+    const adminFinishJoinBtn = document.getElementById('admin-finish-join-btn');
     const gridSizeSelect = document.getElementById('grid-size-select');
     const timerModeSelect = document.getElementById('timer-mode-select');
     const adminStartBtn = document.getElementById('admin-start-btn');
@@ -149,21 +157,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 score: 0
             });
 
-            updateGridOptionsBasedOnPlayers();
-            if (adminStartBtn) adminStartBtn.style.display = 'block';
-            if (gridSizeSelect) gridSizeSelect.disabled = false;
-            if (timerModeSelect) timerModeSelect.disabled = false;
+            if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
+            if (adminFinishJoinBtn) adminFinishJoinBtn.style.display = 'block';
 
             set(roomRef, boardState);
             updateUI();
-            alert('اتاق ساخته شد! لینک دعوت را برای دوستانتان بفرستید.');
+            alert('اتاق ساخته شد! لینک دعوت را برای دوستانتان بفرستید تا وارد شوند.');
         });
     }
 
     if (joinRoomBtn) {
         joinRoomBtn.addEventListener('click', () => {
-            if (boardState.gameStarted) {
-                alert('بازی شروع شده است و امکان پیوستن وجود ندارد!');
+            if (boardState.gameStarted || boardState.settingsOpened) {
+                alert('عضوگیری این بازی بسته شده است!');
                 return;
             }
             if (boardState.players.length >= maxPlayersLimit) {
@@ -186,10 +192,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 animal: PLAYER_ANIMALS[boardState.players.length % PLAYER_ANIMALS.length]
             });
 
-            updateGridOptionsBasedOnPlayers();
+            if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
+
             set(roomRef, boardState);
             updateUI();
-            alert('با موفقیت به بازی ملحق شدید!');
+            alert('با موفقیت به بازی ملحق شدید! منتظر شروع بازی توسط سازنده باشید.');
+        });
+    }
+
+    // دکمه اتمام عضوگیری توسط سازنده
+    if (adminFinishJoinBtn) {
+        adminFinishJoinBtn.addEventListener('click', () => {
+            if (boardState.players.length === 0) {
+                alert('هیچ بازیکنی در بازی حضور ندارد!');
+                return;
+            }
+            boardState.settingsOpened = true;
+            updateGridOptionsBasedOnPlayers();
+            if (settingsOverlay) settingsOverlay.classList.remove('hidden');
+            set(roomRef, boardState);
         });
     }
 
@@ -206,22 +227,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (adminStartBtn) {
         adminStartBtn.addEventListener('click', () => {
-            if (!isCreator && boardState.players.length > 0 && boardState.players[0].id !== getTelegramUser().id) {
-                alert('فقط سازنده اتاق می‌تواند بازی را شروع کند!');
-                return;
-            }
-            if (boardState.players.length === 0) {
-                alert('هیچ بازیکنی در بازی حضور ندارد!');
-                return;
-            }
-
             if (gridSizeSelect) {
                 gridSize = parseInt(gridSizeSelect.value);
                 boardState.size = gridSize;
             }
 
             boardState.gameStarted = true;
-            welcomeOverlay.classList.add('hidden');
+            if (settingsOverlay) settingsOverlay.classList.add('hidden');
             
             set(roomRef, boardState);
             updateUI();
@@ -235,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function removePlayer(playerId) {
-    if (!isCreator || boardState.gameStarted) return;
+    if (!isCreator || boardState.gameStarted || boardState.settingsOpened) return;
     boardState.players = boardState.players.filter(p => p.id !== playerId);
     set(roomRef, boardState);
     updateUI();
@@ -503,8 +515,10 @@ function updateTimerUI() {
             timerEl.textContent = "⏳ زمان: نامحدود";
             timerEl.classList.remove('warning');
         } else {
-            timerEl.textContent = `⏳ زمان باقی‌مانده: ${boardState.timer} ثانیه`;
-            if (boardState.timer <= 5) {
+            const mins = Math.floor(boardState.timer / 60);
+            const secs = boardState.timer % 60;
+            timerEl.textContent = `⏳ زمان: ${mins}:${secs < 10 ? '0' : ''}${secs}`;
+            if (boardState.timer <= 10) {
                 timerEl.classList.add('warning');
             } else {
                 timerEl.classList.remove('warning');
@@ -547,7 +561,7 @@ function updateUI() {
         item.className = `player-item ${isCurrent && boardState.gameStarted ? 'active-turn' : ''}`;
         
         let deleteBtnHtml = '';
-        if (isCreator && !boardState.gameStarted) {
+        if (isCreator && !boardState.gameStarted && !boardState.settingsOpened) {
             deleteBtnHtml = `<button class="remove-player-btn" onclick="removePlayer(${player.id})" title="حذف بازیکن" style="background:none; border:none; color:#ef4444; font-size:16px; cursor:pointer; margin-right:8px;">❌</button>`;
         }
 
