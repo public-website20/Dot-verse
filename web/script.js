@@ -16,7 +16,6 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 const urlParams = new URLSearchParams(window.location.search);
-// اگر پارامتر room وجود داشته باشد از آن استفاده می کند، در غیر این صورت اتاق جدید می سازد
 const urlRoomId = urlParams.get('room');
 const roomId = urlRoomId || 'room_' + Math.random().toString(36).substring(2, 8);
 const roomRef = db.ref('rooms/' + roomId);
@@ -75,23 +74,19 @@ roomRef.on('value', (snapshot) => {
             if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
         }
 
-        // بررسی اینکه آیا کاربر فعلی در لیست بازیکنان به عنوان نفر اول (سازنده) وجود دارد
         if (boardState.players.length > 0 && boardState.players[0].id === currentUserId) {
             isCreator = true;
         } else {
             isCreator = false;
         }
     } else {
-        // اگر اتاق هنوز در دیتابیس وجود ندارد و کاربر با لینک وارد شده است
         if (urlRoomId) {
             isCreator = false;
         } else {
-            // اگر کاربر سازنده اصلی است و اتاق خالی است
             isCreator = true;
         }
     }
 
-    // مدیریت نمایش دکمه‌ها در صفحه خوش‌آمدگویی بر اساس سازنده بودن
     if (welcomeOverlay && !boardState.gameStarted) {
         if (isCreator) {
             if (createRoomBtn) createRoomBtn.style.display = 'block';
@@ -138,13 +133,10 @@ function getTelegramUser() {
     };
 }
 
-// تابع اصلاح‌شده برای ساخت لینک مینی‌اپ تلگرام (بدون باز شدن در مرورگر خارجی)
 function copyRoomLink() {
-    // نام کاربری ربات تلگرام خود را حتماً اینجا جایگزین کنید (بدون @)
-    const botUsername = "DotVerseBot"; 
-    const miniAppName = "game"; // نام کوتاه مینی اپ ثبت شده در BotFather
+    const botUsername = "Dot_GameBot"; 
+    const miniAppName = "game"; 
     
-    // استفاده از استاندارد t.me جهت باز شدن مستقیم داخل اپلیکیشن تلگرام (مینی اپ)
     let shareUrl = `https://t.me/${botUsername}/${miniAppName}?startapp=${roomId}`;
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
