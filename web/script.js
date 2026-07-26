@@ -62,8 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (createRoomBtn) {
         createRoomBtn.addEventListener('click', () => {
             if (gridSizeSelect) {
-                gridSizeSize = parseInt(gridSizeSelect.value);
-                gridSize = gridSizeSize;
+                gridSize = parseInt(gridSizeSelect.value);
                 boardState.size = gridSize;
             }
 
@@ -78,7 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // کلیک روی دکمه پیوستن به بازی توسط شرکت‌کنندگان
+    // کلیک روی دکمه پیوستن به بازی توسط شرکت‌کنندگان (دریافت خودکار نام از تلگرام)
     if (joinRoomBtn) {
         joinRoomBtn.addEventListener('click', () => {
             if (boardState.players.length >= maxPlayersLimit) {
@@ -86,12 +85,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // شبیه‌سازی پیوستن بازیکن جدید
-            const newPlayerId = Date.now();
-            const playerName = prompt("لطفاً نام خود را وارد کنید:", "کاربر مهمان") || "بازیکن";
-            
+            // گرفتن اطلاعات کاربر مستقیماً از اکانت تلگرام
+            let telegramUser = null;
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+                telegramUser = window.Telegram.WebApp.initDataUnsafe.user;
+            }
+
+            // تعیین نام: اولویت با نام تلگرام، اگر روی مرورگر معمولی تست شد "کاربر مهمان"
+            const playerName = telegramUser ? (telegramUser.first_name + (telegramUser.last_name ? ' ' + telegramUser.last_name : '')) : "کاربر مهمان";
+            const playerId = telegramUser ? telegramUser.id : Date.now();
+
+            // بررسی اینکه بازیکن قبلاً وارد نشده باشد
+            if (boardState.players.some(p => p.id === playerId)) {
+                alert('شما قبلاً به این بازی پیوسته‌اید!');
+                welcomeOverlay.classList.add('hidden');
+                return;
+            }
+
             boardState.players.push({
-                id: newPlayerId,
+                id: playerId,
                 name: playerName,
                 score: 0,
                 color: PLAYER_COLORS[boardState.players.length % PLAYER_COLORS.length],
@@ -100,7 +112,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             updateUI();
             welcomeOverlay.classList.add('hidden');
-            // تا قبل از شروع بازی توسط سازنده، تخته رندر می‌شود اما منتظر می‌ماند
             renderBoard();
         });
     }
@@ -124,11 +135,18 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initGame() {
-    // افزودن سازنده به عنوان بازیکن اول
+    // افزودن سازنده به عنوان بازیکن اول (با استفاده از نام تلگرام در صورت امکان)
     if (boardState.players.length === 0) {
+        let telegramUser = null;
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+            telegramUser = window.Telegram.WebApp.initDataUnsafe.user;
+        }
+        const creatorName = telegramUser ? (telegramUser.first_name + (telegramUser.last_name ? ' ' + telegramUser.last_name : '')) + " (سازنده)" : "سازنده (شما)";
+        const creatorId = telegramUser ? telegramUser.id : 101;
+
         boardState.players.push({
-            id: 101,
-            name: "سازنده (شما)",
+            id: creatorId,
+            name: creatorName,
             color: PLAYER_COLORS[0],
             animal: PLAYER_ANIMALS[0],
             score: 0
