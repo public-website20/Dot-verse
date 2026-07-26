@@ -1,130 +1,106 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent, WebAppInfo
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes,
-    CallbackQueryHandler,
-    MessageHandler,
-    InlineQueryHandler,
-    filters,
+import logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
+from config import TELEGRAM_TOKEN
+
+# تنظیمات لاگینگ برای بررسی خطاها
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-import uuid
+logger = logging.getLogger(__name__)
 
-from config import BOT_TOKEN
-from game.handlers import (
-    create_game,
-    join_game,
-    start_game,
-    cancel_game,
-    show_help,
-    show_settings,
-    show_about,
-    select_grid_size,
-    set_grid_size,
-)
+# حافظه موقت برای نگهداری وضعیت لابی‌ها (بعداً به فایربیس متصل می‌شود)
+rooms_data = {}
 
-CORRECT_PASSWORD = "Dv032000vD"
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+    
+    # ساخت شناسه یکتا برای اتاق
+    room_id = f"room_{chat_id}"
+    
+    if room_id not in rooms_data:
+        rooms_data[room_id] = {
+            "creator": user.id,
+            "players": [user.full_name],
+            "size": 6,
+            "timer": 300,
+            "game_started": False
+        }
 
-# آدرس وب‌سایت شما روی گیت‌هاب پیج
-WEB_APP_URL = "https://public-website20.github.io/Dot-verse/"
-
-
-async def start_or_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if not context.bot_data.get(f"authenticated_{user_id}", False):
-        context.user_data["waiting_for_password"] = True
-        await update.message.reply_text(
-            "🔒 این ربات محافظت‌شده است.\n\nلطفاً برای شروع و استفاده از ربات، رمز عبور را ارسال کنید:"
-        )
-        return
-
-    # استفاده از دکمه Web App برای باز کردن سایت درون تلگرام
     keyboard = [
-        [InlineKeyboardButton("🎮 ورود به محیط بازی (مینی‌اپ)", web_app=WebAppInfo(url=WEB_APP_URL))],
-        [InlineKeyboardButton("📖 آموزش", callback_data="help")],
-        [InlineKeyboardButton("⚙️ تنظیمات", callback_data="settings")],
-        [InlineKeyboardButton("ℹ️ درباره بازی", callback_data="about")],
+        [InlineKeyboardButton("🎯 پایه ام (پیوستن به بازی)", callback_data=f"join_{room_id}")],
+        [InlineKeyboardButton("⚙️ تنظیمات ابعاد و زمان", callback_data=f"settings_{room_id}")],
+        [InlineKeyboardButton("🚀 شروع بازی", callback_data=f"start_game_{room_id}")]
     ]
-
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "🎮 به DotVerse خوش اومدی!\n\n"
-        "برای شروع بازی، روی گزینه زیر کلیک کن تا محیط بازی باز شود:",
-        reply_markup=reply_markup,
+    welcome_text = (
+        f"🎮 **بازی نقطه‌چین (DotVerse)**\n\n"
+        f"سازنده لابی: {user.full_name}\n"
+        f"👥 تعداد بازیکنان: {len(rooms_data[room_id]['players'])} نفر\n\n"
+        f"لطفاً برای شرکت در بازی روی دکمه «پایه ام» کلیک کنید:"
     )
 
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode="Markdown")
 
-async def check_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if context.user_data.get("waiting_for_password", False):
-        password_input = update.message.text
-
-        if password_input == CORRECT_PASSWORD:
-            context.bot_data[f"authenticated_{user_id}"] = True
-            context.user_data["waiting_for_password"] = False
-            await update.message.reply_text(
-                "✅ رمز عبور صحیح است!\n\nاکنون می‌توانید از ربات استفاده کنید یا دستور `/start` را بزنید."
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    user = update.effective_user
+    
+    if data.startswith("join_"):
+        room_id = data.split("_", 1)[1]
+        if room_id in rooms_data:
+            if user.full_name not in rooms_data[room_id]["players"]:
+                rooms_data[room_id]["players"].append(user.full_name)
+                
+            players_list = "\n".join([f"👤 {p}" for p in rooms_data[room_id]["players"]])
+            
+            keyboard = [
+                [InlineKeyboardButton("🎯 پایه ام (پیوستن به بازی)", callback_data=f"join_{room_id}")],
+                [InlineKeyboardButton("⚙️ تنظیمات ابعاد و زمان", callback_data=f"settings_{room_id}")],
+                [InlineKeyboardButton("🚀 شروع بازی", callback_data=f"start_game_{room_id}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            updated_text = (
+                f"🎮 **بازی نقطه‌چین (DotVerse)**\n\n"
+                f"👥 **لیست بازیکنان حاضر:**\n{players_list}\n\n"
+                f"تعداد کل: {len(rooms_data[room_id]['players'])} نفر"
             )
-        else:
-            await update.message.reply_text("❌ رمز عبور اشتباه است. لطفاً دوباره تلاش کنید:")
+            
+            try:
+                await query.edit_message_text(updated_text, reply_markup=reply_markup, parse_mode="Markdown")
+            except Exception:
+                pass
 
-
-async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.inline_query.from_user.id
-
-    if not context.bot_data.get(f"authenticated_{user_id}", False):
-        results = [
-            InlineQueryResultArticle(
-                id=str(uuid.uuid4()),
-                title="🔒 ربات قفل است (نیاز به رمز ورود)",
-                description="برای استفاده از ربات ابتدا در پی‌وی به ربات رمز را بدهید.",
-                input_message_content=InputTextMessageContent(
-                    message_text="❌ این ربات محافظت‌شده است. لطفاً ابتدا به پی‌وی ربات بروید و با وارد کردن رمز عبور آن را فعال کنید."
-                )
-            )
+    elif data.startswith("start_game_"):
+        room_id = data.split("_", 2)[2]
+        # آدرس مینی‌اپ شما روی گیت‌هاب پیج بر اساس ریپازیتوری Dot-verse
+        mini_app_url = f"https://public-website20.github.io/Dot-verse/?room={room_id}"
+        
+        keyboard = [
+            [InlineKeyboardButton("🎮 ورود به مینی‌اپ و شروع بازی", web_app=WebAppInfo(url=mini_app_url))]
         ]
-        await update.inline_query.answer(results, cache_time=1)
-        return
-
-    # ارسال مینی‌اپ از طریق اینلاین در گروه یا چت دوستان
-    keyboard = [
-        [InlineKeyboardButton("🎮 باز کردن مینی‌اپ بازی", web_app=WebAppInfo(url=WEB_APP_URL))]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    results = [
-        InlineQueryResultArticle(
-            id=str(uuid.uuid4()),
-            title="🎮 بازی DotVerse",
-            description="برای باز کردن محیط بازی کلیک کنید",
-            input_message_content=InputTextMessageContent(
-                message_text="🎮 به بازی DotVerse خوش آمدید!\n\nبرای ورود به محیط بازی روی دکمه زیر کلیک کنید:",
-                reply_markup=reply_markup
-            ),
-            reply_markup=reply_markup
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.message.reply_text(
+            "🔥 **لابی بازی آماده شد!**\n\nبازیکنان عزیز می‌توانند برای ورود به صفحه بازی و کشیدن خطوط، روی دکمه زیر کلیک کنند:",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
         )
-    ]
-    await update.inline_query.answer(results, cache_time=1)
-
 
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start_or_game_menu))
-    app.add_handler(CommandHandler("game", start_or_game_menu))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_password))
-    app.add_handler(InlineQueryHandler(inline_query_handler))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-    app.add_handler(CallbackQueryHandler(show_help, pattern="^help$"))
-    app.add_handler(CallbackQueryHandler(show_settings, pattern="^settings$"))
-    app.add_handler(CallbackQueryHandler(show_about, pattern="^about$"))
-
-    print("Bot is running...")
+    print("🤖 ربات با موفقیت روشن شد و در حال دریافت پیام است...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()

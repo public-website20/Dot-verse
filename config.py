@@ -1,10 +1,8 @@
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 
 load_dotenv()
 
-# توکن ربات تلگرام
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# آدرس وب‌اپلیکیشن بازی (می‌توانید مستقیم لینک دهید یا از .env بخوانید)
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://your-username.github.io/dotverse")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+if not TELEGRAM_TOKEN:
+    raise ValueError("توکن تلگرام در فایل .env یافت نشد!")
