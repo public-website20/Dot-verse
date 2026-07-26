@@ -80,7 +80,6 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # بررسی اینکه آیا کاربری که دارد اینلاین را استفاده می‌کند رمز را زده یا نه
     if not context.bot_data.get(f"authenticated_{user_id}", False):
-        # اگر رمز را نزده بود، یک نتیجه نشان می‌دهد که کاربر را هدایت کند به پی‌وی
         results = [
             InlineQueryResultArticle(
                 id=str(uuid.uuid4()),
@@ -94,7 +93,13 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.inline_query.answer(results, cache_time=1)
         return
 
-    # اگر احراز هویت شده بود، کادر بازی ظاهر می‌شود
+    bot_username = "Dot_GameBot"
+    
+    # تعریف ساختار دکمه لینک برای هدایت صحیح به پی‌وی
+    reply_markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🆕 ایجاد بازی در پی‌وی ربات", url=f"https://t.me/{bot_username}?start=create")]
+    ])
+
     results = [
         InlineQueryResultArticle(
             id=str(uuid.uuid4()),
@@ -103,9 +108,7 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             input_message_content=InputTextMessageContent(
                 message_text="🎮 به بازی DotVerse خوش آمدید!\n\nبرای شروع بازی روی دکمه زیر کلیک کنید:"
             ),
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🆕 ایجاد بازی", callback_data="create_game")]
-            ])
+            reply_markup=reply_markup
         )
     ]
     await update.inline_query.answer(results, cache_time=1)
