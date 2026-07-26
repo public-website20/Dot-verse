@@ -15,15 +15,16 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+// استخراج دقیق room از URL، تلگرام WebApp و پارامتر startapp
 const urlParams = new URLSearchParams(window.location.search);
-let urlRoomId = urlParams.get('room');
+let urlRoomId = urlParams.get('room') || urlParams.get('startapp');
 
 if (!urlRoomId && window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
     urlRoomId = window.Telegram.WebApp.initDataUnsafe.start_param;
 }
 if (!urlRoomId) {
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    urlRoomId = hashParams.get('tgWebAppStartParam');
+    urlRoomId = hashParams.get('tgWebAppStartParam') || hashParams.get('startapp');
 }
 
 const roomId = urlRoomId || 'room_' + Math.random().toString(36).substring(2, 8);
@@ -146,6 +147,7 @@ function copyRoomLink() {
     const botUsername = "Dot_GameBot"; 
     const miniAppName = "app"; 
     
+    // اصلاح ساختار لینک مینی‌اپ تلگرام با علامت سوال (?)
     let shareUrl = `https://t.me/${botUsername}/${miniAppName}?startapp=${roomId}`;
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
