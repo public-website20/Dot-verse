@@ -6,13 +6,12 @@
     <title>DotVerse - بازی نقطه و خط</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- کتابخانه‌های فایربیس برای ارتباط آنلاین و چندنفره -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 </head>
 <body>
     <div class="container">
-        <!-- هدر بالای صفحه شامل عنوان و دکمه همبرگری (سه خط) در سمت راست -->
+        <!-- هدر بالای صفحه -->
         <header class="game-header">
             <h1 class="game-title">DotVerse</h1>
             <div class="menu-btn" id="menu-toggle">
@@ -22,7 +21,7 @@
             </div>
         </header>
 
-        <!-- پنل کشویی بازیکنان و امتیازات -->
+        <!-- پنل کشویی بازیکنان و دکمه اتمام عضوگیری -->
         <div class="drawer-overlay" id="drawer-overlay"></div>
         <div class="side-drawer" id="side-drawer">
             <div class="drawer-header">
@@ -30,11 +29,11 @@
                 <span class="close-btn" id="drawer-close">✕</span>
             </div>
             <div class="players-list" id="players-list">
-                <!-- لیست بازیکنان به‌صورت پویا پر می‌شود -->
+                <!-- لیست بازیکنان -->
             </div>
-            <!-- دکمه شروع بازی برای سازنده (فقط وقتی وارد پنل شود نمایش داده می‌شود) -->
+            <!-- دکمه اتمام عضوگیری برای سازنده -->
             <div class="drawer-footer" id="drawer-footer" style="padding: 15px; text-align: center;">
-                <button class="start-game-modal-btn" id="admin-start-btn" style="display: none; width: 100%;">اتمام عضوگیری و شروع بازی 🚀</button>
+                <button class="start-game-modal-btn" id="admin-finish-join-btn" style="display: none; width: 100%; background-color: #f59e0b;">اتمام عضوگیری و تنظیمات ⚙️</button>
             </div>
         </div>
 
@@ -47,39 +46,46 @@
         </div>
 
         <!-- تایمر شناور روی صفحه -->
-        <div class="floating-timer" id="floating-timer">⏳ 5s</div>
+        <div class="floating-timer" id="floating-timer">⏳ زمان</div>
 
-        <!-- کادر ساخت بازی، انتخاب ابعاد و پیوستن به بازی -->
+        <!-- مدال اولیه ورود به اتاق (فقط ساخت و پیوستن) -->
         <div class="overlay" id="welcome-overlay">
             <div class="welcome-modal">
-                <h2>🎮 تنظیمات بازی DotVerse</h2>
-                <p>لطفاً مشخصات بازی را انتخاب کرده یا به اتاق بپیوندید:</p>
+                <h2>🎮 اتاق بازی DotVerse</h2>
+                <p>لطفاً اتاق جدید بسازید یا به اتاق دوستانتان بپیوندید:</p>
                 
-                <!-- بخش انتخاب ابعاد صفحه -->
+                <button class="start-game-modal-btn" id="create-room-btn">ساخت اتاق جدید 🛠️</button>
+                <button class="start-game-modal-btn" id="join-room-btn" style="background-color: #28a745; margin-top: 15px;">پیوستن به بازی 🤝</button>
+            </div>
+        </div>
+
+        <!-- مدال تنظیمات نهایی (ابعاد و زمان) که بعد از اتمام عضوگیری باز می‌شود -->
+        <div class="overlay hidden" id="settings-overlay">
+            <div class="welcome-modal">
+                <h2>⚙️ تنظیمات نهایی بازی</h2>
+                <p>با توجه به تعداد بازیکنان، مشخصات بازی را انتخاب کنید:</p>
+                
+                <!-- بخش انتخاب ابعاد شبکه (پویا) -->
                 <div class="form-group" style="margin: 15px 0; text-align: right;">
                     <label for="grid-size-select" style="display: block; margin-bottom: 5px; font-weight: bold;">انتخاب ابعاد شبکه:</label>
                     <select id="grid-size-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: inherit; background: #1e293b; color: #fff;">
-                        <option value="3">کوچک (۳ در ۳)</option>
-                        <option value="5" selected>متوسط (۵ در ۵)</option>
-                        <option value="7">بزرگ (۷ در ۷)</option>
+                        <!-- به‌صورت پویا با توجه به تعداد بازیکنان پر می‌شود -->
                     </select>
                 </div>
 
-                <!-- بخش انتخاب حالت زمان بازی -->
+                <!-- بخش انتخاب حالت زمان بازی (دقیقه یا بدون زمان) -->
                 <div class="form-group" style="margin: 15px 0; text-align: right;">
                     <label for="timer-mode-select" style="display: block; margin-bottom: 5px; font-weight: bold;">حالت زمان نوبت:</label>
                     <select id="timer-mode-select" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-family: inherit; background: #1e293b; color: #fff;">
-                        <option value="none">بدون زمان (نامحدود)</option>
-                        <option value="2">زمان‌دار (۲ ثانیه)</option>
-                        <option value="3">زمان‌دار (۳ ثانیه)</option>
-                        <option value="5" selected>زمان‌دار (۵ ثانیه)</option>
-                        <option value="7">زمان‌دار (۷ ثانیه)</option>
+                        <option value="none">بدون زمان (آزاد)</option>
+                        <option value="2">۲ دقیقه</option>
+                        <option value="3">۳ دقیقه</option>
+                        <option value="5" selected>۵ دقیقه</option>
+                        <option value="7">۷ دقیقه</option>
                     </select>
                 </div>
 
-                <!-- دکمه‌های اکشن (ساخت / پیوستن) -->
-                <button class="start-game-modal-btn" id="create-room-btn">ساخت اتاق جدید 🛠️</button>
-                <button class="start-game-modal-btn" id="join-room-btn" style="background-color: #28a745; margin-top: 10px;">پیوستن به بازی 🤝</button>
+                <button class="start-game-modal-btn" id="admin-start-btn" style="background-color: #28a745; margin-top: 10px;">شروع نهایی بازی 🚀</button>
             </div>
         </div>
     </div>
