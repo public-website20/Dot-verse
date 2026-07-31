@@ -1,6 +1,6 @@
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
-from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InlineQueryResultArticle, InputTextMessageContent
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, InlineQueryHandler
 from config import TELEGRAM_TOKEN
 
 # تنظیمات لاگینگ
@@ -9,14 +9,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# حافظه موقت برای مدیریت لابی‌ها و وضعیت‌ها
+# 🔒 لیست سفید (آیدی عددی افراد مجاز برای استفاده از ربات)
+ALLOWED_USERS = [
+    7084498711,  # آیدی ابوالفضل
+    6630663080,  # آیدی 0903
+]
+
+# حافظه موقت برای مدیریت لابی‌ها
 rooms_data = {}
 
-def get_main_menu(room_id):
-    """منوی اصلی لابی بازی"""
+def get_full_menu(room):
+    """تولید منوی کامل لابی"""
+    players_lines = []
+    for p_id, p_name in room["players"].items():
+        if p_id == room["creator"]:
+            players_lines.append(f"سازنده لابی: {p_name}-")
+        else:
+            players_lines.append(f"{p_name}-")
+    
+    players_text = "\n".join(players_lines) if players_lines else "هنوز بازیکنی در بازی نیست."
+    
+    text = (
+        f"🎮 **بازی نقطه خط (DotVerse)**\n\n"
+        f"⏱ حالت زمان: {room['timer']}\n\n"
+        f"👥 **لیست بازیکنان ({len(room['players'])}/20):**\n"
+        f"{players_text}"
+    )
+
+    room_id = room["room_id"]
+    
+    # آدرس مینی‌اپ همراه با ارسال شناسه لابی
+    webapp_url = f"https://your-game-domain.ir/?room={room_id}"
+
     keyboard = [
         [InlineKeyboardButton("🛠 ساخت بازی", callback_data=f"create_game_{room_id}")],
         [InlineKeyboardButton("🎯 پیوستن به بازی", callback_data=f"join_{room_id}")],
+        # متن کاملاً حفظ شده اما با استفاده از url به جای web_app، علامت مربعی مینی‌اپ حذف شده و اینلاین‌مود کاملاً آزاد می‌شود
+        [InlineKeyboardButton("🚀 ورود به بازی (مینی‌اپ)", url=webapp_url)],
         [InlineKeyboardButton("❌ حذف بازیکن", callback_data=f"kick_menu_{room_id}")],
         [
             InlineKeyboardButton("⏳ بدون زمان", callback_data=f"time_none_{room_id}"),
@@ -24,131 +53,244 @@ def get_main_menu(room_id):
         ],
         [InlineKeyboardButton("🚪 بستن ربات", callback_data=f"close_bot_{room_id}")]
     ]
-    return InlineKeyboardMarkup(keyboard)
+
+    return text, InlineKeyboardMarkup(keyboard)
+
+async def safe_edit_message(query, context, text, reply_markup=None):
+    """تابع کمکی ایمن برای ویرایش پیام در حالت‌های چت معمولی و اینلاین"""
+    try:
+        if query.message:
+            await query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode="Markdown")
+        elif query.inline_message_id:
+            await context.bot.edit_message_text(inline_message_id=query.inline_message_id, text=text, reply_markup=reply_markup, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"خطا در ویرایش امن پیام: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if user.id not in ALLOWED_USERS:
+        await update.message.reply_text("⛔️ شما اجازه استفاده از این ربات را ندارید.")
+        return
+
     chat_id = update.effective_chat.id
-    room_id = f"room_{chat_id}"
+    room_id = f"room_{chat_id}_{update.effective_message.message_id}"
+    user_display_name = user.full_name if (user.first_name or user.last_name) else (user.username or f"کاربر {user.id}")
+
+    rooms_data[room_id] = {
+        "room_id": room_id,
+        "creator": user.id,
+        "players": {user.id: user_display_name},
+        "kicked_history": {},
+        "banned_ids": set(),
+        "timer": "بدون زمان",
+        "game_started": False
+    }
+
+    room = rooms_data[room_id]
+    text, reply_markup = get_full_menu(room)
+
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+
+async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if user.id not in ALLOWED_USERS:
+        return
+
+    inline_query = update.inline_query
+    if not inline_query:
+        return
+
+    unique_id = inline_query.id
+    room_id = f"inline_{user.id}_{unique_id}"
+    user_display_name = user.full_name if (user.first_name or user.last_name) else (user.username or f"کاربر {user.id}")
     
-    if room_id not in rooms_data:
-        rooms_data[room_id] = {
-            "creator": user.id,
-            "creator_name": user.full_name,
-            "players": {user.id: user.full_name},
-            "timer": "بدون زمان",
-            "game_started": False
-        }
+    rooms_data[room_id] = {
+        "room_id": room_id,
+        "creator": user.id,
+        "players": {user.id: user_display_name},
+        "kicked_history": {},
+        "banned_ids": set(),
+        "timer": "بدون زمان",
+        "game_started": False
+    }
 
-    welcome_text = (
-        f"🎮 **بازی نقطه‌چین (DotVerse)**\n\n"
-        f"سازنده لابی: {rooms_data[room_id]['creator_name']}\n"
-        f"👥 تعداد بازیکنان: {len(rooms_data[room_id]['players'])} نفر\n"
-        f"⏱ حالت زمان: {rooms_data[room_id]['timer']}\n\n"
-        f"لطفاً یکی از گزینه‌های زیر را انتخاب کنید:"
-    )
+    room = rooms_data[room_id]
+    text, reply_markup = get_full_menu(room)
 
-    await update.message.reply_text(welcome_text, reply_markup=get_main_menu(room_id), parse_mode="Markdown")
+    results = [
+        InlineQueryResultArticle(
+            id=str(unique_id),
+            title="🎮 شروع بازی نقطه خط (DotVerse)",
+            description="برای شروع بازی و پیوستن دوستان کلیک کنید",
+            input_message_content=InputTextMessageContent(
+                message_text=text,
+                parse_mode="Markdown"
+            ),
+            reply_markup=reply_markup
+        )
+    ]
+    
+    try:
+        await inline_query.answer(results, cache_time=0, is_personal=True)
+    except Exception as e:
+        logger.error(f"خطا در پاسخ به اینلاین: {e}")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    user = update.effective_user
+
+    if user.id not in ALLOWED_USERS:
+        await query.answer("⛔️ شما اجازه دسترسی به این ربات را ندارید.", show_alert=True)
+        return
     
     data = query.data
-    user = update.effective_user
-    room_id = data.split("_")[-1]
     
-    if room_id not in rooms_data:
-        rooms_data[room_id] = {
-            "creator": user.id,
-            "creator_name": user.full_name,
-            "players": {user.id: user.full_name},
-            "timer": "بدون زمان",
-            "game_started": False
-        }
+    # پیدا کردن شناسه لابی به صورت دقیق و پویا
+    room_id = ""
+    for r_id in sorted(rooms_data.keys(), key=len, reverse=True):
+        if r_id in data:
+            room_id = r_id
+            break
+
+    if not room_id or room_id not in rooms_data:
+        await query.answer("⚠️ لابی منقضی شده است. لطفاً ربات را دوباره استارت کنید.", show_alert=True)
+        return
 
     room = rooms_data[room_id]
+    is_creator = (user.id == room["creator"])
 
-    # ۱. ساخت بازی (یا شروع لابی جدید)
-    if data.startswith("create_game_"):
-        room["creator"] = user.id
-        room["creator_name"] = user.full_name
-        if user.id not in room["players"]:
-            room["players"][user.id] = user.full_name
+    # 1. پیوستن به بازی
+    if data.startswith("join_") and not data.startswith("kick_"):
+        user_display_name = user.full_name if (user.first_name or user.last_name) else (user.username or f"کاربر {user.id}")
         
-        await query.edit_message_text(
-            f"🛠 **لابی جدید توسط {user.full_name} ساخته شد!**\nاکنون بازیکنان می‌توانند به بازی بپیوندند.",
-            reply_markup=get_main_menu(room_id),
-            parse_mode="Markdown"
-        )
+        if user.id in room["banned_ids"]:
+            await query.answer("⛔️ شما توسط سازنده از این بازی حذف شده‌اید و نمی‌توانید وارد شوید!", show_alert=True)
+            return
 
-    # ۲. پیوستن به بازی
-    elif data.startswith("join_") and not data.startswith("kick_"):
         if user.id not in room["players"]:
-            room["players"][user.id] = user.full_name
-            
-        players_list = "\n".join([f"👤 {name}" for name in room["players"].values()])
-        updated_text = (
-            f"🎮 **بازی نقطه‌چین (DotVerse)**\n\n"
-            f"👥 **لیست بازیکنان حاضر:**\n{players_list}\n\n"
-            f"⏱ حالت زمان: {room['timer']}\n"
-            f"تعداد کل: {len(room['players'])} نفر"
-        )
+            if len(room["players"]) >= 20:
+                await query.answer("⚠️ ظرفیت بازی تکمیل است (حداکثر 20 نفر).", show_alert=True)
+                return
+            room["players"][user.id] = user_display_name
+            await query.answer("با موفقیت به بازی پیوستید!", show_alert=True)
+        else:
+            await query.answer("شما از قبل در بازی حضور دارید.", show_alert=True)
+
+        text, reply_markup = get_full_menu(room)
+        await safe_edit_message(query, context, text, reply_markup)
+        return
+
+    # 2. بستن ربات
+    if data.startswith("close_bot_"):
         try:
-            await query.edit_message_text(updated_text, reply_markup=get_main_menu(room_id), parse_mode="Markdown")
+            if query.message:
+                await query.message.delete()
+            elif query.inline_message_id:
+                await context.bot.edit_message_text(inline_message_id=query.inline_message_id, text="❌ منوی ربات بسته شد.")
         except Exception:
             pass
+        return
 
-    # ۳. منوی حذف بازیکن (فقط سازنده اجازه دارد)
-    elif data.startswith("kick_menu_"):
-        if user.id != room["creator"]:
-            await query.answer("⚠️ فقط سازنده بازی می‌تواند بازیکنان را حذف کند!", show_alert=True)
-            return
-            
-        if len(room["players"]) <= 1:
-            await query.answer("⚠️ بازیکن دیگری برای حذف وجود ندارد!", show_alert=True)
+    # بررسی دسترسی سازنده برای دکمه‌های مدیریتی
+    if not is_creator:
+        await query.answer("⚠️ این گزینه فقط برای سازنده بازی فعال است!", show_alert=True)
+        return
+
+    # 3. ساخت بازی / ریست لابی
+    if data.startswith("create_game_"):
+        room["creator"] = user.id
+        room["players"] = {user.id: user.full_name if (user.first_name or user.last_name) else (user.username or f"کاربر {user.id}")}
+        room["kicked_history"] = {}
+        room["banned_ids"] = set()
+        await query.answer("لابی بازنشانی و ریست شد.", show_alert=True)
+        
+        text, reply_markup = get_full_menu(room)
+        await safe_edit_message(query, context, text, reply_markup)
+        return
+
+    # 4. منوی حذف بازیکن
+    if data.startswith("kick_menu_"):
+        manageable_players = {}
+        for p_id, p_name in room["players"].items():
+            if p_id != room["creator"]:
+                manageable_players[p_id] = p_name
+        for p_id, p_name in room["kicked_history"].items():
+            if p_id != room["creator"] and p_id not in manageable_players:
+                manageable_players[p_id] = p_name
+
+        if not manageable_players:
+            back_keyboard = [[InlineKeyboardButton("🔙 بازگشت", callback_data=f"back_menu_{room_id}")]]
+            await safe_edit_message(query, context, "⚠️ **بازیکنی برای مدیریت وجود ندارد!**", InlineKeyboardMarkup(back_keyboard))
+            await query.answer()
             return
 
         kick_keyboard = []
-        for p_id, p_name in room["players"].items():
-            if p_id != room["creator"]: # سازنده خودش را نمی‌تواند حذف کند
+        for p_id, p_name in manageable_players.items():
+            if p_id in room["banned_ids"]:
+                kick_keyboard.append([InlineKeyboardButton(f"✅ آزاد کردن {p_name}", callback_data=f"kick_{p_id}_{room_id}")])
+            else:
                 kick_keyboard.append([InlineKeyboardButton(f"❌ حذف {p_name}", callback_data=f"kick_{p_id}_{room_id}")])
         
         kick_keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"back_menu_{room_id}")])
         
-        await query.edit_message_text(
-            "🗑 **لیست بازیکنان برای حذف:**\nروی نام هر بازیکن که خواستید کلیک کنید تا از بازی خارج شود:",
-            reply_markup=InlineKeyboardMarkup(kick_keyboard),
-            parse_mode="Markdown"
-        )
+        await safe_edit_message(query, context, "🗑 **لیست مدیریت بازیکنان:**\nروی نام هر بازیکن برای حذف یا آزادسازی کلیک کنید:", InlineKeyboardMarkup(kick_keyboard))
+        await query.answer()
+        return
 
-    elif data.startswith("kick_") and not data.startswith("kick_menu_"):
+    # 5. عملیات حذف یا آزاد کردن بازیکن خاص
+    if data.startswith("kick_") and not data.startswith("kick_menu_"):
         parts = data.split("_")
-        target_id = int(parts[1])
+        target_id = None
+        for part in parts:
+            if part.isdigit():
+                target_id = int(part)
+                break
         
-        if user.id == room["creator"] and target_id in room["players"]:
-            removed_name = room["players"].pop(target_id)
-            await query.answer(f" بازیکن {removed_name} با موفقیت حذف شد.", show_alert=True)
-            
-        players_list = "\n".join([f"👤 {name}" for name in room["players"].values()])
-        updated_text = (
-            f"🎮 **بازی نقطه‌چین (DotVerse)**\n\n"
-            f"👥 **لیست بازیکنان حاضر:**\n{players_list}\n\n"
-            f"⏱ حالت زمان: {room['timer']}"
-        )
-        await query.edit_message_text(updated_text, reply_markup=get_main_menu(room_id), parse_mode="Markdown")
+        if target_id is not None and target_id != room["creator"]:
+            target_name = room["players"].get(target_id) or room["kicked_history"].get(target_id) or f"کاربر {target_id}"
 
-    # ۴. تنظیم زمان (بدون زمان یا انتخاب زمان‌دار)
-    elif data.startswith("time_none_"):
+            if target_id in room["banned_ids"]:
+                room["banned_ids"].remove(target_id)
+                await query.answer(f"بازیکن {target_name} آزاد شد.", show_alert=True)
+            else:
+                room["banned_ids"].add(target_id)
+                room["kicked_history"][target_id] = target_name
+                if target_id in room["players"]:
+                    del room["players"][target_id]
+                await query.answer(f"بازیکن {target_name} از بازی حذف شد.", show_alert=True)
+            
+            manageable_players = {}
+            for p_id, p_name in room["players"].items():
+                if p_id != room["creator"]:
+                    manageable_players[p_id] = p_name
+            for p_id, p_name in room["kicked_history"].items():
+                if p_id != room["creator"] and p_id not in manageable_players:
+                    manageable_players[p_id] = p_name
+
+            kick_keyboard = []
+            for p_id, p_name in manageable_players.items():
+                if p_id in room["banned_ids"]:
+                    kick_keyboard.append([InlineKeyboardButton(f"✅ آزاد کردن {p_name}", callback_data=f"kick_{p_id}_{room_id}")])
+                else:
+                    kick_keyboard.append([InlineKeyboardButton(f"❌ حذف {p_name}", callback_data=f"kick_{p_id}_{room_id}")])
+            
+            kick_keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"back_menu_{room_id}")])
+            
+            await safe_edit_message(query, context, "🗑 **لیست مدیریت بازیکنان:**\nروی نام هر بازیکن برای حذف یا آزادسازی کلیک کنید:", InlineKeyboardMarkup(kick_keyboard))
+        else:
+            await query.answer()
+        return
+
+    # 6. حالت بدون زمان
+    if data.startswith("time_none_"):
         room["timer"] = "بدون زمان"
         await query.answer("حالت بدون زمان انتخاب شد.", show_alert=True)
-        await query.edit_message_text(
-            f"🎮 **بازی نقطه‌چین (DotVerse)**\n\n⏱ حالت زمان: بدون زمان\n👥 تعداد بازیکنان: {len(room['players'])} نفر",
-            reply_markup=get_main_menu(room_id),
-            parse_mode="Markdown"
-        )
+        text, reply_markup = get_full_menu(room)
+        await safe_edit_message(query, context, text, reply_markup)
+        return
 
-    elif data.startswith("time_select_"):
+    # 7. منوی انتخاب زمان‌دار
+    if data.startswith("time_select_"):
         time_keyboard = [
             [
                 InlineKeyboardButton("2 دقیقه", callback_data=f"settime_2_{room_id}"),
@@ -160,42 +302,35 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ],
             [InlineKeyboardButton("🔙 بازگشت", callback_data=f"back_menu_{room_id}")]
         ]
-        await query.edit_message_text("⏱ **لطفاً مدت زمان بازی را انتخاب کنید:**", reply_markup=InlineKeyboardMarkup(time_keyboard), parse_mode="Markdown")
+        await safe_edit_message(query, context, "⏱ **لطفاً مدت زمان بازی را انتخاب کنید:**", InlineKeyboardMarkup(time_keyboard))
+        await query.answer()
+        return
 
-    elif data.startswith("settime_"):
+    # 8. تنظیم زمان خاص
+    if data.startswith("settime_"):
         parts = data.split("_")
         minutes = parts[1]
         room["timer"] = f"{minutes} دقیقه"
-        
         await query.answer(f"زمان بازی روی {minutes} دقیقه تنظیم شد.", show_alert=True)
-        await query.edit_message_text(
-            f"🎮 **بازی نقطه‌چین (DotVerse)**\n\n⏱ حالت زمان: {room['timer']}\n👥 تعداد بازیکنان: {len(room['players'])} نفر",
-            reply_markup=get_main_menu(room_id),
-            parse_mode="Markdown"
-        )
+        text, reply_markup = get_full_menu(room)
+        await safe_edit_message(query, context, text, reply_markup)
+        return
 
-    # ۵. دکمه بازگشت به منوی اصلی
-    elif data.startswith("back_menu_"):
-        await query.edit_message_text(
-            f"🎮 **بازی نقطه‌چین (DotVerse)**\n\n👥 تعداد بازیکنان: {len(room['players'])} نفر\n⏱ حالت زمان: {room['timer']}",
-            reply_markup=get_main_menu(room_id),
-            parse_mode="Markdown"
-        )
-
-    # ۶. بستن ربات (پاک کردن پیام منو)
-    elif data.startswith("close_bot_"):
-        try:
-            await query.message.delete()
-        except Exception:
-            await query.edit_message_text("❌ منوی ربات بسته شد.")
+    # 9. بازگشت به منوی اصلی
+    if data.startswith("back_menu_"):
+        text, reply_markup = get_full_menu(room)
+        await safe_edit_message(query, context, text, reply_markup)
+        await query.answer()
+        return
 
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(InlineQueryHandler(inline_query_handler))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("🤖 ربات با موفقیت روشن شد و در حال دریافت پیام است...")
+    print("🤖 ربات نقطه خط با موفقیت روشن شد و در حال دریافت پیام است...")
     app.run_polling()
 
 if __name__ == "__main__":

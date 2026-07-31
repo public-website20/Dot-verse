@@ -1,5 +1,5 @@
 /* ==========================================
-   DotVerse - Production Game Logic (script.js)
+   DotVerse - Complete Production Game Logic (script.js)
    ========================================== */
 
 const firebaseConfig = {
@@ -12,41 +12,42 @@ const firebaseConfig = {
     appId: "1:539684224862:web:8aa2f7b4de430b9e4ad9cf"
 };
 
-firebase.initializeApp(firebaseConfig);
+try {
+    firebase.initializeApp(firebaseConfig);
+} catch (e) {
+    console.log("Firebase already initialized");
+}
 const db = firebase.database();
 
-// استخراج دقیق room از URL، تلگرام WebApp و پارامتر startapp
-const urlParams = new URLSearchParams(window.location.search);
-let urlRoomId = urlParams.get('room') || urlParams.get('startapp');
-
-if (!urlRoomId && window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe) {
-    urlRoomId = window.Telegram.WebApp.initDataUnsafe.start_param;
-}
-if (!urlRoomId) {
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    urlRoomId = hashParams.get('tgWebAppStartParam') || hashParams.get('startapp');
-}
-
-const roomId = urlRoomId || 'room_' + Math.random().toString(36).substring(2, 8);
-const roomRef = db.ref('rooms/' + roomId);
-
-const PLAYER_COLORS = [
-    "#38bdf8", "#ef4444", "#22c55e", "#f59e0b", "#a855f7",
-    "#ec4899", "#14b8a6", "#f97316", "#06b6d4", "#84cc16",
-    "#eab308", "#6366f1", "#d946ef", "#10b981", "#f43f5e",
-    "#8b5cf6", "#0284c7", "#f472b6", "#34d399", "#fbbf24"
-];
-
-const PLAYER_ANIMALS = [
-    "🦁", "🦊", "🐻", "🐼", "🐯",
-    "🐰", "🐺", "🐵", "🦄", "🐸",
-    "🐮", "🦉", "🦅", "🐧", "🐙",
-    "🐝", "🦋", "🐬", "🐢", "🐿️"
-];
-
-let gridSize = 6;
+let gridSize = 6; 
 let isCreator = false; 
-const maxPlayersLimit = 20;
+
+// 20 پالت رنگی کاملاً متمایز، روشن، پررنگ و متضاد با تم گرافیت (آبی پررنگ، تفکیک دقیق قرمز و صورتی، بدون رنگ خاکستری)
+const PLAYER_COLORS = [
+    '#38bdf8', // آبی آسمانی روشن
+    '#22c55e', // سبز چمنی
+    '#ef4444', // قرمز خالص
+    '#ec4899', // صورتی سرخابی (کاملاً جدا از قرمز)
+    '#eab308', // زرد خالص 
+    '#a855f7', // بنفش روشن
+    '#1d4ed8', // آبی پررنگ (تیره و کاملاً متمایز از آبی روشن)
+    '#f97316', // نارنجی پررنگ
+    '#14b8a6', // فیروزه‌ای تیره/سبز آبی
+    '#84cc16', // سبز لیمویی روشن
+    '#6366f1', // نیلی / آبی مایل به بنفش
+    '#d946ef', // ارغوانی
+    '#10b981', // سبز زمردی
+    '#f43f5e', // صورتی مرجانی
+    '#0284c7', // آبی کاربنی متوسط
+    '#8b5cf6', // بنفش بادمجانی
+    '#f59e0b', // کهربایی گرم
+    '#06b6d4', // سایان / آبی یخی پررنگ
+    '#8b5cf6', // بنفش شاه‌توتی
+    '#fb7185'  // صورتی روشن گرم
+];
+
+// نمادهای حیوانات برای بازیکنان (تا 20 نماد مجزا)
+const ANIMAL_SYMBOLS = ['🐶', '🐱', '🦊', '🐼', '🦁', '🐯', '🐰', '🐨', '🐸', '🐵', '🐔', '🐧', '🐦', '🐤', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛'];
 
 let boardState = {
     size: 6,
@@ -54,275 +55,133 @@ let boardState = {
     squares: [],
     players: [], 
     currentTurnIndex: 0,
-    timerSetting: 300, 
-    timer: 300,
-    timerInterval: null,
+    turnTimer: 20, 
     gameStarted: false,
     settingsOpened: false
 };
 
-roomRef.on('value', (snapshot) => {
-    const data = snapshot.val();
-    const currentUserId = getTelegramUser().id;
-    const welcomeOverlay = document.getElementById('welcome-overlay');
-    const settingsOverlay = document.getElementById('settings-overlay');
-    const adminFinishJoinBtn = document.getElementById('admin-finish-join-btn');
-    const createRoomBtn = document.getElementById('create-room-btn');
-    const joinRoomBtn = document.getElementById('join-room-btn');
-    const copyLinkWelcomeBtn = document.getElementById('copy-link-welcome-btn');
+class GameTimerManager {
+    constructor() {
+        this.intervalId = null;
+        this.alertTimeoutId = null;
+        this.sequenceTimeoutId = null;
+    }
 
-    if (data) {
-        boardState = data;
-        gridSize = boardState.size || 6;
+    start(onTimeout) {
+        this.stop();
+        boardState.turnTimer = 20;
+        updateTimerUI();
         updateUI();
-        renderBoard();
 
-        if (boardState.gameStarted) {
-            if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
-            if (settingsOverlay) settingsOverlay.classList.add('hidden');
-        } else if (boardState.settingsOpened) {
-            if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
-        }
+        this.intervalId = setInterval(() => {
+            const currentPlayer = boardState.players[boardState.currentTurnIndex];
+            if (!currentPlayer) return;
 
-        if (boardState.players.length > 0 && boardState.players[0].id === currentUserId) {
-            isCreator = true;
-        } else {
-            isCreator = false;
-        }
-    } else {
-        if (urlRoomId) {
-            isCreator = false;
-        } else {
-            isCreator = true;
-        }
-    }
-
-    if (welcomeOverlay && !boardState.gameStarted) {
-        if (isCreator) {
-            if (createRoomBtn) createRoomBtn.style.display = 'block';
-            if (copyLinkWelcomeBtn) copyLinkWelcomeBtn.style.display = 'block';
-            if (joinRoomBtn) joinRoomBtn.style.display = 'none';
-        } else {
-            if (createRoomBtn) createRoomBtn.style.display = 'none';
-            if (copyLinkWelcomeBtn) copyLinkWelcomeBtn.style.display = 'none';
-            if (joinRoomBtn) {
-                joinRoomBtn.style.display = 'block';
-                joinRoomBtn.textContent = 'پیوستن به بازی';
+            boardState.turnTimer--;
+            
+            if (currentPlayer.totalTime > 0) {
+                currentPlayer.totalTime--;
             }
+
+            updateTimerUI();
+            updateUI();
+
+            if (boardState.turnTimer <= 5 && boardState.turnTimer > 0) {
+                // مخفی کردن بنر نوبت بالای صفحه برای جلوگیری از تداخل متن‌ها
+                const banner = document.getElementById('turn-banner');
+                if (banner) banner.innerHTML = "";
+
+                // نمایش ثابت هشدار بدون چشمک زدن
+                showPersistentAlert(`${currentPlayer.name}: ${boardState.turnTimer} ثانیه تا حذف`);
+            }
+
+            if (boardState.turnTimer <= 0 || currentPlayer.totalTime <= 0) {
+                this.stop();
+                onTimeout();
+            }
+        }, 1000);
+    }
+
+    stop() {
+        if (this.intervalId) {
+            clearInterval(this.intervalId);
+            this.intervalId = null;
         }
     }
 
-    if (boardState.players.length > 0 && boardState.players[0].id === currentUserId) {
-        if (adminFinishJoinBtn && !boardState.gameStarted && !boardState.settingsOpened) {
-            adminFinishJoinBtn.style.display = 'block';
+    clearAlerts() {
+        if (this.alertTimeoutId) clearTimeout(this.alertTimeoutId);
+        if (this.sequenceTimeoutId) clearTimeout(this.sequenceTimeoutId);
+        let alertEl = document.getElementById('custom-floating-alert');
+        if (alertEl) alertEl.style.display = 'none';
+    }
+
+    triggerActionSequence(currentPlayer, nextPlayer, hasBonusTurn) {
+        this.clearAlerts();
+        showFloatingAlert(`${currentPlayer.name} حرکتش را انجام داد`, 1200);
+
+        if (hasBonusTurn) {
+            this.sequenceTimeoutId = setTimeout(() => {
+                updateUI();
+            }, 1300);
+        } else if (nextPlayer) {
+            this.sequenceTimeoutId = setTimeout(() => {
+                showFloatingAlert(`نوبت ${nextPlayer.animal} ${nextPlayer.name} است`, 1500);
+                updateUI();
+            }, 1300);
         }
-    } else {
-        if (adminFinishJoinBtn) adminFinishJoinBtn.style.display = 'none';
-    }
-});
-
-function getTelegramUser() {
-    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
-        const u = window.Telegram.WebApp.initDataUnsafe.user;
-        return {
-            id: u.id,
-            name: (u.first_name || '') + (u.last_name ? ' ' + u.last_name : '') || 'کاربر تلگرام'
-        };
-    }
-    let storedId = localStorage.getItem('dotverse_user_id');
-    let storedName = localStorage.getItem('dotverse_user_name');
-    if (!storedId) {
-        storedId = Math.floor(Math.random() * 1000000);
-        storedName = `کاربر_${storedId.toString().slice(-4)}`;
-        localStorage.setItem('dotverse_user_id', storedId);
-        localStorage.setItem('dotverse_user_name', storedName);
-    }
-    return {
-        id: parseInt(storedId),
-        name: storedName || `کاربر_${storedId}`
-    };
-}
-
-function copyRoomLink() {
-    const botUsername = "Dot_GameBot"; 
-    const miniAppName = "app"; 
-    
-    // اصلاح ساختار لینک مینی‌اپ تلگرام با علامت سوال (?)
-    let shareUrl = `https://t.me/${botUsername}/${miniAppName}?startapp=${roomId}`;
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(shareUrl).then(() => {
-            alert('🔗 لینک دعوت مینی‌اپ با موفقیت کپی شد!');
-        }).catch(() => {
-            fallbackCopyText(shareUrl);
-        });
-    } else {
-        fallbackCopyText(shareUrl);
     }
 }
 
-function fallbackCopyText(text) {
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.style.position = "fixed";
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-    try {
-        document.execCommand('copy');
-        alert('🔗 لینک دعوت مینی‌اپ با موفقیت کپی شد!');
-    } catch (err) {
-        alert('لینک دعوت: \n' + text);
-    }
-    document.body.removeChild(textArea);
-}
+const timerManager = new GameTimerManager();
 
 document.addEventListener('DOMContentLoaded', () => {
-    const welcomeOverlay = document.getElementById('welcome-overlay');
-    const settingsOverlay = document.getElementById('settings-overlay');
-    const createRoomBtn = document.getElementById('create-room-btn');
-    const joinRoomBtn = document.getElementById('join-room-btn');
-    const adminFinishJoinBtn = document.getElementById('admin-finish-join-btn');
-    const gridSizeSelect = document.getElementById('grid-size-select');
-    const timerModeSelect = document.getElementById('timer-mode-select');
-    const adminStartBtn = document.getElementById('admin-start-btn');
-    const copyLinkWelcomeBtn = document.getElementById('copy-link-welcome-btn');
-    const copyLinkDrawerBtn = document.getElementById('copy-link-drawer-btn');
-
     if (window.Telegram && window.Telegram.WebApp) {
         window.Telegram.WebApp.ready();
         window.Telegram.WebApp.expand();
     }
 
-    if (copyLinkWelcomeBtn) copyLinkWelcomeBtn.addEventListener('click', copyRoomLink);
-    if (copyLinkDrawerBtn) copyLinkDrawerBtn.addEventListener('click', copyRoomLink);
-
-    function updateGridOptionsBasedOnPlayers() {
-        if (!gridSizeSelect) return;
-        let options = [6, 8, 10, 12, 14, 16];
-
-        gridSizeSelect.innerHTML = '';
-        options.forEach((size, idx) => {
-            const opt = document.createElement('option');
-            opt.value = size;
-            opt.textContent = `${size} در ${size}`;
-            if (idx === 0) opt.selected = true;
-            gridSizeSelect.appendChild(opt);
-        });
-
-        gridSize = options[0];
-        boardState.size = gridSize;
-    }
-
-    if (createRoomBtn) {
-        createRoomBtn.addEventListener('click', () => {
-            const user = getTelegramUser();
-            isCreator = true;
-
-            if (boardState.players.some(p => p.id === user.id)) {
-                if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
-                return;
-            }
-
-            boardState.players = [{
-                id: user.id,
-                name: user.name + " (سازنده)",
-                color: PLAYER_COLORS[0],
-                animal: PLAYER_ANIMALS[0],
-                score: 0
-            }];
-
-            if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
-            if (adminFinishJoinBtn) adminFinishJoinBtn.style.display = 'block';
-
-            roomRef.set(boardState);
-            updateUI();
-        });
-    }
-
-    if (joinRoomBtn) {
-        joinRoomBtn.addEventListener('click', () => {
-            if (boardState.gameStarted || boardState.settingsOpened) {
-                alert('عضوگیری این بازی بسته شده است!');
-                return;
-            }
-            if (boardState.players.length >= maxPlayersLimit) {
-                alert('ظرفیت اتاق تکمیل است!');
-                return;
-            }
-
-            const user = getTelegramUser();
-
-            if (boardState.players.some(p => p.id === user.id)) {
-                if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
-                return;
-            }
-
-            boardState.players.push({
-                id: user.id,
-                name: user.name,
-                score: 0,
-                color: PLAYER_COLORS[boardState.players.length % PLAYER_COLORS.length],
-                animal: PLAYER_ANIMALS[boardState.players.length % PLAYER_ANIMALS.length]
-            });
-
-            if (welcomeOverlay) welcomeOverlay.classList.add('hidden');
-
-            roomRef.set(boardState);
-            updateUI();
-        });
-    }
-
-    if (adminFinishJoinBtn) {
-        adminFinishJoinBtn.addEventListener('click', () => {
-            if (boardState.players.length === 0) {
-                alert('هیچ بازیکنی در بازی حضور ندارد!');
-                return;
-            }
-            boardState.settingsOpened = true;
-            updateGridOptionsBasedOnPlayers();
-            if (settingsOverlay) settingsOverlay.classList.remove('hidden');
-            roomRef.set(boardState);
-        });
-    }
-
-    if (timerModeSelect) {
-        timerModeSelect.addEventListener('change', () => {
-            const val = timerModeSelect.value;
-            if (val === "none") {
-                boardState.timerSetting = "none";
-            } else {
-                boardState.timerSetting = parseInt(val) * 60; 
-            }
-        });
-    }
-
-    if (adminStartBtn) {
-        adminStartBtn.addEventListener('click', () => {
-            if (gridSizeSelect) {
-                gridSize = parseInt(gridSizeSelect.value);
-                boardState.size = gridSize;
-            }
-
-            boardState.gameStarted = true;
-            if (settingsOverlay) settingsOverlay.classList.add('hidden');
-            
-            roomRef.set(boardState);
-            updateUI();
-            renderBoard();
-            startTimer();
-        });
-    }
-
     setupDrawer();
-    window.addEventListener('resize', renderBoard);
+    calculateDynamicGridSize();
+    
+    window.addEventListener('resize', () => {
+        calculateDynamicGridSize();
+        renderBoard();
+    });
+    
+    // حالت واقعی: منتظر شروع بازی توسط کاربر می‌مانیم یا از سرور می‌خوانیم
+    initDefaultRealPlayers();
+    renderBoard();
+    updateUI();
 });
 
-function removePlayer(playerId) {
-    if (!isCreator || boardState.gameStarted || boardState.settingsOpened) return;
-    boardState.players = boardState.players.filter(p => p.id !== playerId);
-    roomRef.set(boardState);
-    updateUI();
+// مقداردهی اولیه بازیکنان واقعی برای شروع بازی
+function initDefaultRealPlayers() {
+    let shuffledColors = [...PLAYER_COLORS].sort(() => Math.random() - 0.5);
+    let shuffledAnimals = [...ANIMAL_SYMBOLS].sort(() => Math.random() - 0.5);
+
+    boardState.players = [
+        { id: 101, name: "بازیکن ۱", color: shuffledColors[0], animal: shuffledAnimals[0], score: 0, totalTime: 180 },
+        { id: 102, name: "بازیکن ۲", color: shuffledColors[1], animal: shuffledAnimals[1], score: 0, totalTime: 180 }
+    ];
+    boardState.gameStarted = true;
+    startTurnTimer();
+}
+
+function calculateDynamicGridSize() {
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+    const minDim = Math.min(screenWidth, screenHeight);
+    if (minDim < 360) {
+        gridSize = 5;
+    } else if (minDim < 450) {
+        gridSize = 6;
+    } else if (minDim < 600) {
+        gridSize = 7;
+    } else {
+        gridSize = 8;
+    }
+    boardState.size = gridSize;
 }
 
 function renderBoard() {
@@ -332,25 +191,22 @@ function renderBoard() {
     container.innerHTML = '';
 
     const screenWidth = window.innerWidth;
-    const maxContainerWidth = screenWidth >= 1024 ? 640 : Math.min(screenWidth - 32, 500);
-    const padding = 20;
-    const availableWidth = maxContainerWidth - (padding * 2);
+    const screenHeight = window.innerHeight;
     
-    const spacing = availableWidth / (gridSize - 1);
+    const availableWidth = Math.min(screenWidth - 24, screenHeight * 0.60, 500);
+    const padding = 16;
+    const innerWidth = availableWidth - (padding * 2);
+    
+    const spacing = innerWidth / (gridSize - 1);
 
-    let dotSize = Math.max(8, Math.floor(spacing * 0.26));
-    let lineThickness = Math.max(3, Math.floor(dotSize * 0.38));
-
-    if (screenWidth >= 1024) {
-        dotSize = Math.floor(dotSize * 1.25);
-        lineThickness = Math.floor(lineThickness * 1.25);
-    }
+    let dotSize = Math.max(6, Math.floor(spacing * 0.22));
+    let lineThickness = Math.max(2, Math.floor(dotSize * 0.35));
 
     document.documentElement.style.setProperty('--dot-size', `${dotSize}px`);
     document.documentElement.style.setProperty('--line-thickness', `${lineThickness}px`);
 
-    container.style.width = `${maxContainerWidth}px`;
-    container.style.height = `${maxContainerWidth}px`;
+    container.style.width = `${availableWidth}px`;
+    container.style.height = `${availableWidth}px`;
 
     for (let r = 0; r < gridSize; r++) {
         for (let c = 0; c < gridSize; c++) {
@@ -404,6 +260,7 @@ function createLineElement(container, x, y, spacing, thickness, type, r, c) {
         line.classList.add('drawn');
         applyLineStyle(line, lineData, type);
     } else {
+        line.style.background = 'transparent';
         line.addEventListener('click', () => handleLineClick(lineId, line, type));
     }
 
@@ -414,6 +271,7 @@ function applyLineStyle(lineElement, lineData, type) {
     const adjacentSquares = lineData.squares || [];
     const uniqueOwners = [];
     const seenPlayerIds = new Set();
+    
     for (const sq of adjacentSquares) {
         if (!seenPlayerIds.has(sq.player)) {
             seenPlayerIds.add(sq.player);
@@ -425,8 +283,8 @@ function applyLineStyle(lineElement, lineData, type) {
         lineElement.style.background = uniqueOwners[0].color;
     } else if (uniqueOwners.length >= 2) {
         const sorted = [...uniqueOwners].sort((a, b) => a.timestamp - b.timestamp);
-        const c1 = sorted[0].color;
-        const c2 = sorted[1].color;
+        const c1 = sorted[0].color; 
+        const c2 = sorted[1].color; 
 
         if (type === 'h') {
             lineElement.style.background = `linear-gradient(to left, ${c1} 50%, ${c2} 50%)`;
@@ -441,14 +299,9 @@ function applyLineStyle(lineElement, lineData, type) {
 function handleLineClick(lineId, lineElement, type) {
     if (!boardState.gameStarted) return;
     if (boardState.lines[lineId]) return;
-    if (boardState.players.length === 0) return;
 
-    let currentUserId = getTelegramUser().id;
+    const timerSnapshot = boardState.turnTimer;
     const currentPlayer = boardState.players[boardState.currentTurnIndex];
-    if (currentPlayer.id !== currentUserId) {
-        alert('نوبت شما نیست!');
-        return;
-    }
 
     boardState.lines[lineId] = {
         defaultColor: currentPlayer.color,
@@ -458,20 +311,29 @@ function handleLineClick(lineId, lineElement, type) {
     lineElement.classList.add('drawn');
     lineElement.style.background = currentPlayer.color;
 
-    const newSquaresCount = checkForCompletedSquares(currentPlayer);
+    const newSquaresCount = checkForCompletedSquares(currentPlayer, lineId);
+    const hasBonusTurn = newSquaresCount > 0;
 
-    if (newSquaresCount === 0) {
-        nextTurn();
+    if (timerSnapshot <= 5) {
+        timerManager.stop();
+        const nextTempIndex = hasBonusTurn ? boardState.currentTurnIndex : (boardState.currentTurnIndex + 1) % boardState.players.length;
+        const nextPlayerTemp = boardState.players[nextTempIndex];
+
+        timerManager.triggerActionSequence(currentPlayer, nextPlayerTemp, hasBonusTurn);
+    }
+
+    if (!hasBonusTurn) {
+        setTimeout(() => {
+            nextTurn();
+        }, timerSnapshot <= 5 ? 2500 : 0);
     } else {
-        resetTimer();
+        resetTurnTimer();
         updateUI();
         renderBoard();
     }
-
-    roomRef.set(boardState);
 }
 
-function checkForCompletedSquares(player) {
+function checkForCompletedSquares(player, triggeredLineId) {
     let count = 0;
     const timestamp = Date.now();
 
@@ -491,22 +353,24 @@ function checkForCompletedSquares(player) {
             const exists = boardState.squares.some(sq => sq.id === squareId);
 
             if (top && bottom && left && right && !exists) {
-                boardState.squares.push({
-                    id: squareId,
-                    r: r,
-                    c: c,
-                    player: player.id,
-                    color: player.color,
-                    animal: player.animal,
-                    timestamp: timestamp
-                });
-                player.score += 1;
-                count++;
+                if (topId === triggeredLineId || bottomId === triggeredLineId || leftId === triggeredLineId || rightId === triggeredLineId) {
+                    boardState.squares.push({
+                        id: squareId,
+                        r: r,
+                        c: c,
+                        player: player.id,
+                        color: player.color,
+                        animal: player.animal,
+                        timestamp: timestamp
+                    });
+                    player.score += 1;
+                    count++;
 
-                addSquareToLine(topId, player, timestamp);
-                addSquareToLine(bottomId, player, timestamp);
-                addSquareToLine(leftId, player, timestamp);
-                addSquareToLine(rightId, player, timestamp);
+                    addSquareToLine(topId, player, timestamp);
+                    addSquareToLine(bottomId, player, timestamp);
+                    addSquareToLine(leftId, player, timestamp);
+                    addSquareToLine(rightId, player, timestamp);
+                }
             }
         }
     }
@@ -519,15 +383,17 @@ function checkForCompletedSquares(player) {
 }
 
 function addSquareToLine(lineId, player, timestamp) {
-    if (boardState.lines[lineId]) {
-        const exists = boardState.lines[lineId].squares.some(s => s.player === player.id && s.timestamp === timestamp);
-        if (!exists) {
-            boardState.lines[lineId].squares.push({
-                player: player.id,
-                color: player.color,
-                timestamp: timestamp
-            });
-        }
+    if (!boardState.lines[lineId]) return;
+    if (!boardState.lines[lineId].squares) {
+        boardState.lines[lineId].squares = [];
+    }
+    const exists = boardState.lines[lineId].squares.some(s => s.player === player.id && s.timestamp === timestamp);
+    if (!exists) {
+        boardState.lines[lineId].squares.push({
+            player: player.id,
+            color: player.color,
+            timestamp: timestamp
+        });
     }
 }
 
@@ -541,54 +407,81 @@ function renderSquares(container, padding, spacing) {
         squareEl.style.height = `${spacing}px`;
         
         squareEl.textContent = sq.animal;
-        squareEl.style.fontSize = `${Math.floor(spacing * 0.48)}px`;
+        squareEl.style.fontSize = `${Math.floor(spacing * 0.45)}px`;
 
         container.appendChild(squareEl);
     });
 }
 
-function startTimer() {
-    clearInterval(boardState.timerInterval);
-
-    if (boardState.timerSetting === "none") {
-        const timerEl = document.getElementById('floating-timer');
-        if (timerEl) timerEl.textContent = "⏳ زمان: نامحدود";
-        return;
-    }
-
-    boardState.timer = boardState.timerSetting;
-    updateTimerUI();
-
-    boardState.timerInterval = setInterval(() => {
-        boardState.timer--;
-        updateTimerUI();
-
-        if (boardState.timer <= 0) {
-            nextTurn();
-            roomRef.set(boardState);
-        }
-    }, 1000);
+function startTurnTimer() {
+    timerManager.start(() => { handlePlayerTimeout(); });
 }
 
-function resetTimer() {
-    startTimer();
+function resetTurnTimer() {
+    startTurnTimer();
+}
+
+function showPersistentAlert(text) {
+    let alertEl = document.getElementById('custom-floating-alert');
+    if (!alertEl) {
+        alertEl = document.createElement('div');
+        alertEl.id = 'custom-floating-alert';
+        alertEl.style.cssText = 'position:fixed; top:75px; left:50%; transform:translateX(-50%); background:rgba(15, 23, 42, 0.92); border: 1px solid rgba(56, 189, 248, 0.4); color:#38bdf8; padding:6px 14px; border-radius:20px; font-size:13px; font-weight:bold; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.4); text-align:center; direction:rtl; pointer-events:none;';
+        document.body.appendChild(alertEl);
+    }
+    alertEl.textContent = text;
+    alertEl.style.display = 'block';
+}
+
+function showFloatingAlert(text, duration = 1500) {
+    let alertEl = document.getElementById('custom-floating-alert');
+    if (!alertEl) {
+        alertEl = document.createElement('div');
+        alertEl.id = 'custom-floating-alert';
+        alertEl.style.cssText = 'position:fixed; top:75px; left:50%; transform:translateX(-50%); background:rgba(15, 23, 42, 0.92); border: 1px solid rgba(56, 189, 248, 0.4); color:#38bdf8; padding:6px 14px; border-radius:20px; font-size:13px; font-weight:bold; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.4); text-align:center; direction:rtl; pointer-events:none;';
+        document.body.appendChild(alertEl);
+    }
+    alertEl.textContent = text;
+    alertEl.style.display = 'block';
+    
+    if (timerManager.alertTimeoutId) clearTimeout(timerManager.alertTimeoutId);
+    timerManager.alertTimeoutId = setTimeout(() => {
+        if (alertEl) alertEl.style.display = 'none';
+    }, duration);
+}
+
+function handlePlayerTimeout() {
+    if (boardState.players.length === 0) return;
+
+    const timedOutPlayer = boardState.players[boardState.currentTurnIndex];
+    showFloatingAlert(`${timedOutPlayer.name} از بازی حذف شد`, 2000);
+
+    boardState.players.splice(boardState.currentTurnIndex, 1);
+
+    if (boardState.players.length > 0) {
+        boardState.currentTurnIndex = boardState.currentTurnIndex % boardState.players.length;
+        startTurnTimer();
+        const nextPlayer = boardState.players[boardState.currentTurnIndex];
+        setTimeout(() => {
+            showFloatingAlert(`نوبت ${nextPlayer.animal} ${nextPlayer.name} است`, 1500);
+            updateUI();
+        }, 2000);
+    } else {
+        boardState.gameStarted = false;
+        showFloatingAlert('بازی به پایان رسید', 2000);
+        updateUI();
+    }
 }
 
 function updateTimerUI() {
     const timerEl = document.getElementById('floating-timer');
     if (timerEl) {
-        if (boardState.timerSetting === "none") {
-            timerEl.textContent = "⏳ زمان: نامحدود";
-            timerEl.classList.remove('warning');
+        timerEl.textContent = `⏳ ${boardState.turnTimer}s`;
+
+        if (boardState.turnTimer <= 5) {
+            timerEl.classList.add('warning');
         } else {
-            const mins = Math.floor(boardState.timer / 60);
-            const secs = boardState.timer % 60;
-            timerEl.textContent = `⏳ زمان: ${mins}:${secs < 10 ? '0' : ''}${secs}`;
-            if (boardState.timer <= 10) {
-                timerEl.classList.add('warning');
-            } else {
-                timerEl.classList.remove('warning');
-            }
+            timerEl.classList.remove('warning');
         }
     }
 }
@@ -597,7 +490,7 @@ function nextTurn() {
     if (boardState.players.length === 0) return;
     boardState.currentTurnIndex = (boardState.currentTurnIndex + 1) % boardState.players.length;
     updateUI();
-    resetTimer();
+    resetTurnTimer();
 }
 
 function updateUI() {
@@ -608,7 +501,7 @@ function updateUI() {
             banner.innerHTML = `نوبت بازی: <span style="color:${currentPlayer.color}; font-weight:900;">${currentPlayer.animal} ${currentPlayer.name}</span>`;
         }
     } else {
-        if (banner) banner.textContent = "در انتظار شروع بازی و عضوگیری...";
+        if (banner) banner.textContent = "در انتظار نوبت بازی...";
     }
 
     const playerCountSpan = document.getElementById('player-count');
@@ -626,18 +519,9 @@ function updateUI() {
         const item = document.createElement('div');
         item.className = `player-item ${isCurrent && boardState.gameStarted ? 'active-turn' : ''}`;
         
-        let deleteBtn = null;
-        if (isCreator && !boardState.gameStarted && !boardState.settingsOpened && idx !== 0) {
-            deleteBtn = document.createElement('button');
-            deleteBtn.className = 'remove-player-btn';
-            deleteBtn.innerHTML = '❌';
-            deleteBtn.title = 'حذف بازیکن';
-            deleteBtn.style.cssText = 'background:none; border:none; color:#ef4444; font-size:16px; cursor:pointer; margin-right:8px; padding:4px;';
-            deleteBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                removePlayer(player.id);
-            });
-        }
+        const mins = Math.floor(player.totalTime / 60);
+        const secs = player.totalTime % 60;
+        const timeFormatted = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 
         const playerInfoDiv = document.createElement('div');
         playerInfoDiv.className = 'player-info';
@@ -646,16 +530,13 @@ function updateUI() {
             <span class="player-badge" style="background:${player.color}; padding:4px 8px; border-radius:4px;">${player.animal}</span>
             <div>
                 <div><b>${player.name}</b> ${isCurrent && boardState.gameStarted ? '📌' : ''}</div>
+                <div style="font-size: 11px; color: #94a3b8;">زمان باقی‌مانده: ${timeFormatted}</div>
             </div>
         `;
 
         const playerRightDiv = document.createElement('div');
         playerRightDiv.style.cssText = 'display:flex; align-items:center;';
         playerRightDiv.innerHTML = `<b style="margin-left:8px;">امتیاز: ${player.score}</b>`;
-
-        if (deleteBtn) {
-            playerRightDiv.appendChild(deleteBtn);
-        }
 
         item.appendChild(playerInfoDiv);
         item.appendChild(playerRightDiv);
@@ -669,14 +550,38 @@ function setupDrawer() {
     const overlay = document.getElementById('drawer-overlay');
     const closeBtn = document.getElementById('drawer-close');
 
-    function toggleDrawer() {
-        drawer.classList.toggle('open');
-        overlay.classList.toggle('active');
+    function openDrawer() {
+        if (drawer) drawer.classList.add('open');
+        if (overlay) overlay.classList.add('active');
     }
 
-    if (menuToggle) menuToggle.addEventListener('click', toggleDrawer);
-    if (closeBtn) closeBtn.addEventListener('click', closeDrawer);
-    if (overlay) overlay.addEventListener('click', toggleDrawer);
-}
+    function closeDrawer() {
+        if (drawer) drawer.classList.remove('open');
+        if (overlay) overlay.classList.remove('active');
+    }
 
-window.removePlayer = removePlayer;
+    if (menuToggle) {
+        menuToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (drawer && drawer.classList.contains('open')) {
+                closeDrawer();
+            } else {
+                openDrawer();
+            }
+        });
+    }
+
+    if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeDrawer();
+        });
+    }
+
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeDrawer();
+        });
+    }
+}
