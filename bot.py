@@ -38,13 +38,12 @@ def get_full_menu(room):
 
     room_id = room["room_id"]
     
-    # آدرس مینی‌اپ همراه با ارسال شناسه لابی
-    webapp_url = f"https://your-game-domain.ir/?room={room_id}"
+    # اتصال لینک گیت‌هاب‌پیجِس شما همراه با شناسه لابی
+    webapp_url = f"https://public-website20.github.io/Dot-verse/?room={room_id}"
 
     keyboard = [
         [InlineKeyboardButton("🛠 ساخت بازی", callback_data=f"create_game_{room_id}")],
         [InlineKeyboardButton("🎯 پیوستن به بازی", callback_data=f"join_{room_id}")],
-        # متن کاملاً حفظ شده اما با استفاده از url به جای web_app، علامت مربعی مینی‌اپ حذف شده و اینلاین‌مود کاملاً آزاد می‌شود
         [InlineKeyboardButton("🚀 ورود به بازی (مینی‌اپ)", url=webapp_url)],
         [InlineKeyboardButton("❌ حذف بازیکن", callback_data=f"kick_menu_{room_id}")],
         [
