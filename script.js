@@ -21,32 +21,17 @@ const db = firebase.database();
 
 let gridSize = 6; 
 let isCreator = false; 
+let gameStartedByHost = false; // قفل شروع بازی تا زمانی که سازنده دکمه شروع را بزند
 
-// 20 پالت رنگی کاملاً متمایز، روشن، پررنگ و متضاد با تم گرافیت (آبی پررنگ، تفکیک دقیق قرمز و صورتی، بدون رنگ خاکستری)
+// 20 پالت رنگی کاملاً متمایز، روشن و پررنگ
 const PLAYER_COLORS = [
-    '#38bdf8', // آبی آسمانی روشن
-    '#22c55e', // سبز چمنی
-    '#ef4444', // قرمز خالص
-    '#ec4899', // صورتی سرخابی (کاملاً جدا از قرمز)
-    '#eab308', // زرد خالص 
-    '#a855f7', // بنفش روشن
-    '#1d4ed8', // آبی پررنگ (تیره و کاملاً متمایز از آبی روشن)
-    '#f97316', // نارنجی پررنگ
-    '#14b8a6', // فیروزه‌ای تیره/سبز آبی
-    '#84cc16', // سبز لیمویی روشن
-    '#6366f1', // نیلی / آبی مایل به بنفش
-    '#d946ef', // ارغوانی
-    '#10b981', // سبز زمردی
-    '#f43f5e', // صورتی مرجانی
-    '#0284c7', // آبی کاربنی متوسط
-    '#8b5cf6', // بنفش بادمجانی
-    '#f59e0b', // کهربایی گرم
-    '#06b6d4', // سایان / آبی یخی پررنگ
-    '#8b5cf6', // بنفش شاه‌توتی
-    '#fb7185'  // صورتی روشن گرم
+    '#38bdf8', '#22c55e', '#ef4444', '#ec4899', '#eab308', 
+    '#a855f7', '#1d4ed8', '#f97316', '#14b8a6', '#84cc16', 
+    '#6366f1', '#d946ef', '#10b981', '#f43f5e', '#0284c7', 
+    '#8b5cf6', '#f59e0b', '#06b6d4', '#8b5cf6', '#fb7185'
 ];
 
-// نمادهای حیوانات برای بازیکنان (تا 20 نماد مجزا)
+// نمادهای حیوانات برای بازیکنان
 const ANIMAL_SYMBOLS = ['🐶', '🐱', '🦊', '🐼', '🦁', '🐯', '🐰', '🐨', '🐸', '🐵', '🐔', '🐧', '🐦', '🐤', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛'];
 
 let boardState = {
@@ -57,7 +42,8 @@ let boardState = {
     currentTurnIndex: 0,
     turnTimer: 20, 
     gameStarted: false,
-    settingsOpened: false
+    settingsOpened: false,
+    creatorId: null
 };
 
 class GameTimerManager {
@@ -69,16 +55,19 @@ class GameTimerManager {
 
     start(onTimeout) {
         this.stop();
+        if (!gameStartedByHost) return;
         boardState.turnTimer = 20;
         updateTimerUI();
         updateUI();
 
         this.intervalId = setInterval(() => {
             const currentPlayer = boardState.players[boardState.currentTurnIndex];
-            if (!currentPlayer) return;
+            if (!currentPlayer || currentPlayer.isEliminated) {
+                this.switchToNextValidPlayer();
+                return;
+            }
 
             boardState.turnTimer--;
-            
             if (currentPlayer.totalTime > 0) {
                 currentPlayer.totalTime--;
             }
@@ -87,11 +76,8 @@ class GameTimerManager {
             updateUI();
 
             if (boardState.turnTimer <= 5 && boardState.turnTimer > 0) {
-                // مخفی کردن بنر نوبت بالای صفحه برای جلوگیری از تداخل متن‌ها
                 const banner = document.getElementById('turn-banner');
                 if (banner) banner.innerHTML = "";
-
-                // نمایش ثابت هشدار بدون چشمک زدن
                 showPersistentAlert(`${currentPlayer.name}: ${boardState.turnTimer} ثانیه تا حذف`);
             }
 
@@ -116,20 +102,12 @@ class GameTimerManager {
         if (alertEl) alertEl.style.display = 'none';
     }
 
-    triggerActionSequence(currentPlayer, nextPlayer, hasBonusTurn) {
-        this.clearAlerts();
-        showFloatingAlert(`${currentPlayer.name} حرکتش را انجام داد`, 1200);
-
-        if (hasBonusTurn) {
-            this.sequenceTimeoutId = setTimeout(() => {
-                updateUI();
-            }, 1300);
-        } else if (nextPlayer) {
-            this.sequenceTimeoutId = setTimeout(() => {
-                showFloatingAlert(`نوبت ${nextPlayer.animal} ${nextPlayer.name} است`, 1500);
-                updateUI();
-            }, 1300);
-        }
+    switchToNextValidPlayer() {
+        if (boardState.players.length === 0) return;
+        let startIndex = boardState.currentTurnIndex;
+        do {
+            boardState.currentTurnIndex = (boardState.currentTurnIndex + 1) % boardState.players.length;
+        } while (boardState.players[boardState.currentTurnIndex].isEliminated && boardState.currentTurnIndex !== startIndex);
     }
 }
 
@@ -141,47 +119,151 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Telegram.WebApp.expand();
     }
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const chatId = urlParams.get('chat_id') || 'default_room';
+
+    registerCurrentTelegramUser(chatId);
     setupDrawer();
-    calculateDynamicGridSize();
+    loadGameDataFromFirebase();
+    setupZoomAndPan();
     
     window.addEventListener('resize', () => {
-        calculateDynamicGridSize();
         renderBoard();
     });
-    
-    // حالت واقعی: منتظر شروع بازی توسط کاربر می‌مانیم یا از سرور می‌خوانیم
-    initDefaultRealPlayers();
-    renderBoard();
-    updateUI();
 });
 
-// مقداردهی اولیه بازیکنان واقعی برای شروع بازی
-function initDefaultRealPlayers() {
-    let shuffledColors = [...PLAYER_COLORS].sort(() => Math.random() - 0.5);
-    let shuffledAnimals = [...ANIMAL_SYMBOLS].sort(() => Math.random() - 0.5);
+// ثبت‌نام کاربر واقعی بر اساس نام پروفایل تلگرام
+function registerCurrentTelegramUser(chatId) {
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    if (!tgUser) return;
 
-    boardState.players = [
-        { id: 101, name: "بازیکن ۱", color: shuffledColors[0], animal: shuffledAnimals[0], score: 0, totalTime: 180 },
-        { id: 102, name: "بازیکن ۲", color: shuffledColors[1], animal: shuffledAnimals[1], score: 0, totalTime: 180 }
-    ];
-    boardState.gameStarted = true;
-    startTurnTimer();
+    const userId = tgUser.id;
+    const userName = tgUser.first_name || "بازیکن";
+
+    const playerRef = db.ref(`rooms/${chatId}/players/${userId}`);
+    playerRef.once('value', (snapshot) => {
+        if (!snapshot.exists()) {
+            let randomColor = PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)];
+            let randomAnimal = ANIMAL_SYMBOLS[Math.floor(Math.random() * ANIMAL_SYMBOLS.length)];
+            
+            playerRef.set({
+                id: userId,
+                name: userName,
+                color: randomColor,
+                animal: randomAnimal,
+                score: 0,
+                totalTime: 180,
+                isEliminated: false
+            });
+        }
+    });
 }
 
-function calculateDynamicGridSize() {
-    const screenWidth = window.innerWidth;
-    const screenHeight = window.innerHeight;
-    const minDim = Math.min(screenWidth, screenHeight);
-    if (minDim < 360) {
-        gridSize = 5;
-    } else if (minDim < 450) {
-        gridSize = 6;
-    } else if (minDim < 600) {
-        gridSize = 7;
-    } else {
-        gridSize = 8;
-    }
-    boardState.size = gridSize;
+function loadGameDataFromFirebase() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const chatId = urlParams.get('chat_id') || 'default_room';
+
+    db.ref(`rooms/${chatId}`).on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            if (data.size) {
+                gridSize = data.size;
+                boardState.size = gridSize;
+            }
+            if (data.creatorId) {
+                boardState.creatorId = data.creatorId;
+                const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+                if (tgUser && tgUser.id.toString() === data.creatorId.toString()) {
+                    isCreator = true;
+                }
+            }
+            if (data.players) {
+                let rawPlayers = Object.values(data.players);
+                rawPlayers.sort((a, b) => {
+                    if (a.id === boardState.creatorId) return -1;
+                    if (b.id === boardState.creatorId) return 1;
+                    return 0;
+                });
+
+                boardState.players = rawPlayers.map((p, idx) => ({
+                    id: p.id,
+                    name: p.name, // نام واقعی پروفایل تلگرام بدون پیشوند فیک
+                    color: p.color || PLAYER_COLORS[idx % PLAYER_COLORS.length],
+                    animal: p.animal || ANIMAL_SYMBOLS[idx % ANIMAL_SYMBOLS.length],
+                    score: p.score || 0,
+                    totalTime: p.totalTime || 180,
+                    isCreator: p.id === boardState.creatorId,
+                    isEliminated: p.isEliminated || false
+                }));
+            } else {
+                boardState.players = [];
+            }
+            if (data.gameStartedByHost !== undefined) {
+                gameStartedByHost = data.gameStartedByHost;
+                boardState.gameStarted = gameStartedByHost;
+                if (gameStartedByHost && !timerManager.intervalId) {
+                    startTurnTimer();
+                }
+            }
+            if (data.lines) {
+                boardState.lines = data.lines;
+            }
+            if (data.squares) {
+                boardState.squares = data.squares;
+            }
+        } else {
+            boardState.players = [];
+        }
+
+        renderBoard();
+        updateUI();
+        checkGameWinnerCondition();
+    });
+}
+
+// قابلیت زوم و پن (پویش) صفحه
+function setupZoomAndPan() {
+    const container = document.getElementById('board-container');
+    if (!container) return;
+
+    let scale = 1;
+    let panning = false;
+    let pointX = 0;
+    let pointY = 0;
+    let startX = 0;
+    let startY = 0;
+
+    container.addEventListener('mousedown', (e) => {
+        if (e.target.classList.contains('line') || e.target.classList.contains('dot')) return;
+        panning = true;
+        startX = e.clientX - pointX;
+        startY = e.clientY - pointY;
+        container.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mouseup', () => {
+        panning = false;
+        container.style.cursor = 'default';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!panning) return;
+        e.preventDefault();
+        pointX = e.clientX - startX;
+        pointY = e.clientY - startY;
+        container.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
+    });
+
+    container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+            scale *= 1.1;
+        } else {
+            scale /= 1.1;
+        }
+        scale = Math.min(Math.max(1, scale), 3.5);
+        container.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
+    }, { passive: false });
 }
 
 function renderBoard() {
@@ -194,13 +276,13 @@ function renderBoard() {
     const screenHeight = window.innerHeight;
     
     const availableWidth = Math.min(screenWidth - 24, screenHeight * 0.60, 500);
-    const padding = 16;
+    const padding = 20;
     const innerWidth = availableWidth - (padding * 2);
     
     const spacing = innerWidth / (gridSize - 1);
 
-    let dotSize = Math.max(6, Math.floor(spacing * 0.22));
-    let lineThickness = Math.max(2, Math.floor(dotSize * 0.35));
+    let dotSize = Math.max(5, Math.floor(spacing * 0.20));
+    let lineThickness = Math.max(2, Math.floor(dotSize * 0.40));
 
     document.documentElement.style.setProperty('--dot-size', `${dotSize}px`);
     document.documentElement.style.setProperty('--line-thickness', `${lineThickness}px`);
@@ -297,11 +379,13 @@ function applyLineStyle(lineElement, lineData, type) {
 }
 
 function handleLineClick(lineId, lineElement, type) {
-    if (!boardState.gameStarted) return;
-    if (boardState.lines[lineId]) return;
-
-    const timerSnapshot = boardState.turnTimer;
+    if (!gameStartedByHost) {
+        showFloatingAlert('بازی هنوز توسط سازنده شروع نشده است!', 1500);
+        return;
+    }
     const currentPlayer = boardState.players[boardState.currentTurnIndex];
+    if (!currentPlayer || currentPlayer.isEliminated) return;
+    if (boardState.lines[lineId]) return;
 
     boardState.lines[lineId] = {
         defaultColor: currentPlayer.color,
@@ -314,23 +398,22 @@ function handleLineClick(lineId, lineElement, type) {
     const newSquaresCount = checkForCompletedSquares(currentPlayer, lineId);
     const hasBonusTurn = newSquaresCount > 0;
 
-    if (timerSnapshot <= 5) {
-        timerManager.stop();
-        const nextTempIndex = hasBonusTurn ? boardState.currentTurnIndex : (boardState.currentTurnIndex + 1) % boardState.players.length;
-        const nextPlayerTemp = boardState.players[nextTempIndex];
-
-        timerManager.triggerActionSequence(currentPlayer, nextPlayerTemp, hasBonusTurn);
-    }
+    const urlParams = new URLSearchParams(window.location.search);
+    const chatId = urlParams.get('chat_id') || 'default_room';
+    db.ref(`rooms/${chatId}`).update({
+        lines: boardState.lines,
+        squares: boardState.squares,
+        players: boardState.players
+    });
 
     if (!hasBonusTurn) {
-        setTimeout(() => {
-            nextTurn();
-        }, timerSnapshot <= 5 ? 2500 : 0);
+        timerManager.switchToNextValidPlayer();
+        startTurnTimer();
     } else {
-        resetTurnTimer();
-        updateUI();
-        renderBoard();
+        startTurnTimer();
     }
+    updateUI();
+    checkGameWinnerCondition();
 }
 
 function checkForCompletedSquares(player, triggeredLineId) {
@@ -374,11 +457,6 @@ function checkForCompletedSquares(player, triggeredLineId) {
             }
         }
     }
-
-    if (count > 0) {
-        updateUI();
-    }
-
     return count;
 }
 
@@ -417,10 +495,6 @@ function startTurnTimer() {
     timerManager.start(() => { handlePlayerTimeout(); });
 }
 
-function resetTurnTimer() {
-    startTurnTimer();
-}
-
 function showPersistentAlert(text) {
     let alertEl = document.getElementById('custom-floating-alert');
     if (!alertEl) {
@@ -451,33 +525,22 @@ function showFloatingAlert(text, duration = 1500) {
 }
 
 function handlePlayerTimeout() {
-    if (boardState.players.length === 0) return;
+    const currentPlayer = boardState.players[boardState.currentTurnIndex];
+    if (!currentPlayer) return;
 
-    const timedOutPlayer = boardState.players[boardState.currentTurnIndex];
-    showFloatingAlert(`${timedOutPlayer.name} از بازی حذف شد`, 2000);
+    currentPlayer.isEliminated = true;
+    showFloatingAlert(`${currentPlayer.name} از بازی حذف شد`, 2000);
 
-    boardState.players.splice(boardState.currentTurnIndex, 1);
-
-    if (boardState.players.length > 0) {
-        boardState.currentTurnIndex = boardState.currentTurnIndex % boardState.players.length;
-        startTurnTimer();
-        const nextPlayer = boardState.players[boardState.currentTurnIndex];
-        setTimeout(() => {
-            showFloatingAlert(`نوبت ${nextPlayer.animal} ${nextPlayer.name} است`, 1500);
-            updateUI();
-        }, 2000);
-    } else {
-        boardState.gameStarted = false;
-        showFloatingAlert('بازی به پایان رسید', 2000);
-        updateUI();
-    }
+    timerManager.switchToNextValidPlayer();
+    startTurnTimer();
+    updateUI();
+    checkGameWinnerCondition();
 }
 
 function updateTimerUI() {
     const timerEl = document.getElementById('floating-timer');
     if (timerEl) {
         timerEl.textContent = `⏳ ${boardState.turnTimer}s`;
-
         if (boardState.turnTimer <= 5) {
             timerEl.classList.add('warning');
         } else {
@@ -486,22 +549,28 @@ function updateTimerUI() {
     }
 }
 
-function nextTurn() {
-    if (boardState.players.length === 0) return;
-    boardState.currentTurnIndex = (boardState.currentTurnIndex + 1) % boardState.players.length;
-    updateUI();
-    resetTurnTimer();
+function checkGameWinnerCondition() {
+    const totalPossibleSquares = (gridSize - 1) * (gridSize - 1);
+    const activePlayers = boardState.players.filter(p => !p.isEliminated);
+
+    if (boardState.squares.length === totalPossibleSquares || activePlayers.length <= 1) {
+        timerManager.stop();
+        let winner = activePlayers.reduce((max, p) => p.score > max.score ? p : max, activePlayers[0] || boardState.players[0]);
+        if (winner) {
+            showPersistentAlert(`🏆 ${winner.name} برنده بازی شد!`);
+        }
+    }
 }
 
 function updateUI() {
     const banner = document.getElementById('turn-banner');
-    if (boardState.gameStarted && boardState.players.length > 0) {
+    if (gameStartedByHost && boardState.players.length > 0) {
         const currentPlayer = boardState.players[boardState.currentTurnIndex];
-        if (banner) {
+        if (banner && currentPlayer) {
             banner.innerHTML = `نوبت بازی: <span style="color:${currentPlayer.color}; font-weight:900;">${currentPlayer.animal} ${currentPlayer.name}</span>`;
         }
     } else {
-        if (banner) banner.textContent = "در انتظار نوبت بازی...";
+        if (banner) banner.textContent = "در انتظار شروع بازی توسط سازنده...";
     }
 
     const playerCountSpan = document.getElementById('player-count');
@@ -514,22 +583,69 @@ function updateUI() {
 
     listContainer.innerHTML = '';
 
-    boardState.players.forEach((player, idx) => {
-        const isCurrent = idx === boardState.currentTurnIndex;
-        const item = document.createElement('div');
-        item.className = `player-item ${isCurrent && boardState.gameStarted ? 'active-turn' : ''}`;
+    // دکمه شروع بازی در بالای لیست (فقط برای سازنده نمایش داده می‌شود)
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    const currentUserId = tgUser ? tgUser.id.toString() : null;
+    const isUserCreator = currentUserId && boardState.creatorId && currentUserId === boardState.creatorId.toString();
+
+    if (isUserCreator && !gameStartedByHost) {
+        const startBtnDiv = document.createElement('div');
+        startBtnDiv.style.cssText = 'margin-bottom: 12px; text-align: center;';
+        startBtnDiv.innerHTML = `
+            <button id="host-start-game-btn" style="width: 100%; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; border: none; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; box-shadow: 0 4px 10px rgba(34, 197, 94, 0.3);">
+                🚀 شروع بازی
+            </button>
+        `;
+        listContainer.appendChild(startBtnDiv);
+
+        setTimeout(() => {
+            const btn = document.getElementById('host-start-game-btn');
+            if (btn) {
+                btn.onclick = () => {
+                    gameStartedByHost = true;
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const chatId = urlParams.get('chat_id') || 'default_room';
+                    db.ref(`rooms/${chatId}`).update({ gameStartedByHost: true });
+                    startTurnTimer();
+                    updateUI();
+                };
+            }
+        }, 50);
+    }
+
+    let sortedDisplayPlayers = [...boardState.players];
+    sortedDisplayPlayers.sort((a, b) => {
+        if (a.isCreator) return -1;
+        if (b.isCreator) return 1;
+        return 0;
+    });
+
+    sortedDisplayPlayers.forEach((player) => {
+        const originalIdx = boardState.players.findIndex(p => p.id === player.id);
+        const isCurrent = originalIdx === boardState.currentTurnIndex && gameStartedByHost && !player.isEliminated;
         
+        const item = document.createElement('div');
+        item.className = `player-item ${isCurrent && gameStartedByHost ? 'active-turn' : ''} ${player.isEliminated ? 'eliminated-player' : ''}`;
+        
+        if (player.isEliminated) {
+            item.style.opacity = '0.5';
+        }
+
         const mins = Math.floor(player.totalTime / 60);
         const secs = player.totalTime % 60;
         const timeFormatted = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
 
         const playerInfoDiv = document.createElement('div');
         playerInfoDiv.className = 'player-info';
-        playerInfoDiv.style.cssText = 'display:flex; align-items:center; gap:8px;';
+        playerInfoDiv.style.cssText = 'display:flex; align-items:center; gap:8px; position:relative;';
+        
+        let creatorStar = player.isCreator ? ' ⭐' : '';
+        let eliminatedBadge = player.isEliminated ? '<span style="font-size:10px; background:#ef4444; color:white; padding:1px 5px; border-radius:4px; margin-right:5px;">حذف شده</span>' : '';
+
         playerInfoDiv.innerHTML = `
             <span class="player-badge" style="background:${player.color}; padding:4px 8px; border-radius:4px;">${player.animal}</span>
             <div>
-                <div><b>${player.name}</b> ${isCurrent && boardState.gameStarted ? '📌' : ''}</div>
+                <div><b>${player.name}</b>${creatorStar} ${isCurrent && gameStartedByHost ? '📌' : ''} ${eliminatedBadge}</div>
                 <div style="font-size: 11px; color: #94a3b8;">زمان باقی‌مانده: ${timeFormatted}</div>
             </div>
         `;
