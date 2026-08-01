@@ -20,8 +20,7 @@ try {
 const db = firebase.database();
 
 let gridSize = 6; 
-let isCreator = false; 
-let gameStartedByHost = false; // قفل شروع بازی تا زمانی که سازنده دکمه شروع را بزند
+let gameStartedByHost = false; 
 
 // 20 پالت رنگی کاملاً متمایز، روشن و پررنگ
 const PLAYER_COLORS = [
@@ -137,7 +136,7 @@ function registerCurrentTelegramUser(chatId) {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     if (!tgUser) return;
 
-    const userId = tgUser.id;
+    const userId = String(tgUser.id);
     const userName = tgUser.first_name || "بازیکن";
 
     const playerRef = db.ref(`rooms/${chatId}/players/${userId}`);
@@ -171,28 +170,26 @@ function loadGameDataFromFirebase() {
                 boardState.size = gridSize;
             }
             if (data.creatorId) {
-                boardState.creatorId = data.creatorId;
-                const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-                if (tgUser && tgUser.id.toString() === data.creatorId.toString()) {
-                    isCreator = true;
-                }
+                boardState.creatorId = String(data.creatorId);
             }
             if (data.players) {
                 let rawPlayers = Object.values(data.players);
+                
+                // مرتب‌سازی برای اینکه سازنده همیشه بالاترین جایگاه را داشته باشد
                 rawPlayers.sort((a, b) => {
-                    if (a.id === boardState.creatorId) return -1;
-                    if (b.id === boardState.creatorId) return 1;
+                    if (String(a.id) === String(boardState.creatorId)) return -1;
+                    if (String(b.id) === String(boardState.creatorId)) return 1;
                     return 0;
                 });
 
                 boardState.players = rawPlayers.map((p, idx) => ({
-                    id: p.id,
-                    name: p.name, // نام واقعی پروفایل تلگرام بدون پیشوند فیک
+                    id: String(p.id),
+                    name: p.name,
                     color: p.color || PLAYER_COLORS[idx % PLAYER_COLORS.length],
                     animal: p.animal || ANIMAL_SYMBOLS[idx % ANIMAL_SYMBOLS.length],
                     score: p.score || 0,
-                    totalTime: p.totalTime || 180,
-                    isCreator: p.id === boardState.creatorId,
+                    totalTime: p.totalTime !== undefined ? p.totalTime : 180,
+                    isCreator: String(p.id) === String(boardState.creatorId),
                     isEliminated: p.isEliminated || false
                 }));
             } else {
@@ -585,8 +582,8 @@ function updateUI() {
 
     // دکمه شروع بازی در بالای لیست (فقط برای سازنده نمایش داده می‌شود)
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-    const currentUserId = tgUser ? tgUser.id.toString() : null;
-    const isUserCreator = currentUserId && boardState.creatorId && currentUserId === boardState.creatorId.toString();
+    const currentUserId = tgUser ? String(tgUser.id) : null;
+    const isUserCreator = currentUserId && boardState.creatorId && currentUserId === String(boardState.creatorId);
 
     if (isUserCreator && !gameStartedByHost) {
         const startBtnDiv = document.createElement('div');
@@ -621,7 +618,7 @@ function updateUI() {
     });
 
     sortedDisplayPlayers.forEach((player) => {
-        const originalIdx = boardState.players.findIndex(p => p.id === player.id);
+        const originalIdx = boardState.players.findIndex(p => String(p.id) === String(player.id));
         const isCurrent = originalIdx === boardState.currentTurnIndex && gameStartedByHost && !player.isEliminated;
         
         const item = document.createElement('div');

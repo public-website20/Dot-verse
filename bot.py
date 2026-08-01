@@ -305,7 +305,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         current_keyboard = list(reply_markup.inline_keyboard)
         # قرار دادن دکمه ورود به مینی‌اپ در بالاترین بخش پس از انتخاب ابعاد
-        current_keyboard.insert(0, [InlineKeyboardButton("🚀 ورود به بازی (مینی‌اپ)", url=webapp_url)])
+        current_keyboard.insert(0, [InlineKeyboardButton("🚀ورود به بازی", url=webapp_url)])
         
         await safe_edit_message(query, context, text, InlineKeyboardMarkup(current_keyboard))
         return
