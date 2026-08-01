@@ -19,7 +19,7 @@ ALLOWED_USERS = [
 rooms_data = {}
 
 def get_full_menu(room):
-    """تولید منوی کامل لابی"""
+    """تولید منوی کامل لابی با قرار گرفتن ساخت بازی در بالاترین نقطه"""
     players_lines = []
     for p_id, p_name in room["players"].items():
         if p_id == room["creator"]:
@@ -29,29 +29,41 @@ def get_full_menu(room):
     
     players_text = "\n".join(players_lines) if players_lines else "هنوز بازیکنی در بازی نیست."
     
+    status_text = "🔒 ثبت‌نام بسته شده (آماده انتخاب ابعاد)" if room["registration_closed"] else f"👥 **لیست بازیکنان ({len(room['players'])}/20):**"
+    
+    selected_board = room.get("board_size", "انتخاب نشده")
+    
     text = (
         f"🎮 **بازی نقطه خط (DotVerse)**\n\n"
-        f"⏱ حالت زمان: {room['timer']}\n\n"
-        f"👥 **لیست بازیکنان ({len(room['players'])}/20):**\n"
+        f"⏱ حالت زمان: {room['timer']}\n"
+        f"📐 ابعاد صفحه: {selected_board}\n\n"
+        f"{status_text}\n"
         f"{players_text}"
     )
 
     room_id = room["room_id"]
-    
-    # اتصال لینک گیت‌هاب‌پیجِس شما همراه با شناسه لابی
-    webapp_url = f"https://public-website20.github.io/Dot-verse/?room={room_id}"
+    keyboard = []
 
-    keyboard = [
-        [InlineKeyboardButton("🛠 ساخت بازی", callback_data=f"create_game_{room_id}")],
-        [InlineKeyboardButton("🎯 پیوستن به بازی", callback_data=f"join_{room_id}")],
-        [InlineKeyboardButton("🚀 ورود به بازی (مینی‌اپ)", url=webapp_url)],
-        [InlineKeyboardButton("❌ حذف بازیکن", callback_data=f"kick_menu_{room_id}")],
-        [
-            InlineKeyboardButton("⏳ بدون زمان", callback_data=f"time_none_{room_id}"),
-            InlineKeyboardButton("⏱ زمان‌دار", callback_data=f"time_select_{room_id}")
-        ],
-        [InlineKeyboardButton("🚪 بستن ربات", callback_data=f"close_bot_{room_id}")]
-    ]
+    # ۱. دکمه ساخت بازی (ریست) در بالاترین نقطه قرار گرفت
+    keyboard.append([InlineKeyboardButton("🛠 ساخت بازی (ریست)", callback_data=f"create_game_{room_id}")])
+
+    # ۲. اگر ثبت‌نام هنوز باز است، دکمه پیوستن و اتمام ورود را نمایش بده
+    if not room["registration_closed"]:
+        keyboard.append([InlineKeyboardButton("🎯 پیوستن به بازی", callback_data=f"join_{room_id}")])
+        keyboard.append([InlineKeyboardButton("🛑 اتمام ورود", callback_data=f"close_reg_{room_id}")])
+    else:
+        # بعد از اتمام ورود، دکمه انتخاب ابعاد نمایش داده می‌شود
+        keyboard.append([InlineKeyboardButton("📐 انتخاب ابعاد صفحه", callback_data=f"size_menu_{room_id}")])
+
+    # دکمه‌های مدیریت حذف بازیکن و تنظیمات زمان
+    keyboard.append([InlineKeyboardButton("❌ حذف بازیکن", callback_data=f"kick_menu_{room_id}")])
+    keyboard.append([
+        InlineKeyboardButton("⏳ بدون زمان", callback_data=f"time_none_{room_id}"),
+        InlineKeyboardButton("⏱ زمان‌دار", callback_data=f"time_select_{room_id}")
+    ])
+    
+    # دکمه بستن ربات در انتهای منو
+    keyboard.append([InlineKeyboardButton("🚪 بستن ربات", callback_data=f"close_bot_{room_id}")])
 
     return text, InlineKeyboardMarkup(keyboard)
 
@@ -82,6 +94,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "kicked_history": {},
         "banned_ids": set(),
         "timer": "بدون زمان",
+        "registration_closed": False,
+        "board_size": "انتخاب نشده",
         "game_started": False
     }
 
@@ -110,6 +124,8 @@ async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         "kicked_history": {},
         "banned_ids": set(),
         "timer": "بدون زمان",
+        "registration_closed": False,
+        "board_size": "انتخاب نشده",
         "game_started": False
     }
 
@@ -144,7 +160,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = query.data
     
-    # پیدا کردن شناسه لابی به صورت دقیق و پویا
     room_id = ""
     for r_id in sorted(rooms_data.keys(), key=len, reverse=True):
         if r_id in data:
@@ -160,15 +175,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 1. پیوستن به بازی
     if data.startswith("join_") and not data.startswith("kick_"):
+        if room["registration_closed"]:
+            await query.answer("⛔️ مهلت پیوستن به این بازی به پایان رسیده است!", show_alert=True)
+            return
+
         user_display_name = user.full_name if (user.first_name or user.last_name) else (user.username or f"کاربر {user.id}")
         
         if user.id in room["banned_ids"]:
-            await query.answer("⛔️ شما توسط سازنده از این بازی حذف شده‌اید و نمی‌توانید وارد شوید!", show_alert=True)
+            await query.answer("⛔️ شما توسط سازنده از این بازی حذف شده‌اید!", show_alert=True)
             return
 
         if user.id not in room["players"]:
             if len(room["players"]) >= 20:
-                await query.answer("⚠️ ظرفیت بازی تکمیل است (حداکثر 20 نفر).", show_alert=True)
+                await query.answer("⚠️ ظرفیت بازی تکمیل است.", show_alert=True)
                 return
             room["players"][user.id] = user_display_name
             await query.answer("با موفقیت به بازی پیوستید!", show_alert=True)
@@ -201,13 +220,97 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         room["players"] = {user.id: user.full_name if (user.first_name or user.last_name) else (user.username or f"کاربر {user.id}")}
         room["kicked_history"] = {}
         room["banned_ids"] = set()
+        room["registration_closed"] = False
+        room["board_size"] = "انتخاب نشده"
         await query.answer("لابی بازنشانی و ریست شد.", show_alert=True)
         
         text, reply_markup = get_full_menu(room)
         await safe_edit_message(query, context, text, reply_markup)
         return
 
-    # 4. منوی حذف بازیکن
+    # 4. اتمام ورود (بسته شدن ثبت‌نام و نمایش خودکار منوی ابعاد)
+    if data.startswith("close_reg_"):
+        room["registration_closed"] = True
+        await query.answer("ثبت‌نام بازیکنان بسته شد.", show_alert=True)
+        
+        count = len(room["players"])
+        sizes_keyboard = []
+        
+        if 2 <= count <= 4:
+            available_sizes = ["6x6", "8x8", "10x10", "12x12"]
+        elif 5 <= count <= 8:
+            available_sizes = ["8x8", "10x10", "12x12", "14x14"]
+        elif 9 <= count <= 12:
+            available_sizes = ["10x10", "12x12", "14x14", "16x16"]
+        elif 13 <= count <= 17:
+            available_sizes = ["12x12", "14x14", "16x16", "18x18"]
+        else:
+            available_sizes = ["14x14", "16x16", "18x18", "20x20"]
+
+        row = []
+        for size in available_sizes:
+            row.append(InlineKeyboardButton(size, callback_data=f"setsize_{size}_{room_id}"))
+            if len(row) == 2:
+                sizes_keyboard.append(row)
+                row = []
+        if row:
+            sizes_keyboard.append(row)
+            
+        sizes_keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"back_menu_{room_id}")])
+        
+        await safe_edit_message(query, context, f"📐 **تعداد بازیکنان:** {count} نفر\nلطفاً ابعاد صفحه بازی را انتخاب کنید:", InlineKeyboardMarkup(sizes_keyboard))
+        return
+
+    # 5. منوی انتخاب ابعاد (دستی)
+    if data.startswith("size_menu_"):
+        count = len(room["players"])
+        sizes_keyboard = []
+        
+        if 2 <= count <= 4:
+            available_sizes = ["6x6", "8x8", "10x10", "12x12"]
+        elif 5 <= count <= 8:
+            available_sizes = ["8x8", "10x10", "12x12", "14x14"]
+        elif 9 <= count <= 12:
+            available_sizes = ["10x10", "12x12", "14x14", "16x16"]
+        elif 13 <= count <= 17:
+            available_sizes = ["12x12", "14x14", "16x16", "18x18"]
+        else:
+            available_sizes = ["14x14", "16x16", "18x18", "20x20"]
+
+        row = []
+        for size in available_sizes:
+            row.append(InlineKeyboardButton(size, callback_data=f"setsize_{size}_{room_id}"))
+            if len(row) == 2:
+                sizes_keyboard.append(row)
+                row = []
+        if row:
+            sizes_keyboard.append(row)
+            
+        sizes_keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"back_menu_{room_id}")])
+        
+        await safe_edit_message(query, context, f"📐 **تعداد بازیکنان:** {count} نفر\nلطفاً ابعاد صفحه بازی را انتخاب کنید:", InlineKeyboardMarkup(sizes_keyboard))
+        await query.answer()
+        return
+
+    # 6. ثبت ابعاد انتخاب شده و ضمیمه کردن لینک مینی‌اپ با پارامتر ابعاد و لابی
+    if data.startswith("setsize_"):
+        parts = data.split("_")
+        size = parts[1]
+        room["board_size"] = size
+        await query.answer(f"ابعاد صفحه روی {size} تنظیم شد.", show_alert=True)
+        
+        text, reply_markup = get_full_menu(room)
+        
+        webapp_url = f"https://public-website20.github.io/Dot-verse/?room={room_id}&size={size}"
+        
+        current_keyboard = list(reply_markup.inline_keyboard)
+        # قرار دادن دکمه ورود به مینی‌اپ در بالاترین بخش پس از انتخاب ابعاد
+        current_keyboard.insert(0, [InlineKeyboardButton("🚀 ورود به بازی (مینی‌اپ)", url=webapp_url)])
+        
+        await safe_edit_message(query, context, text, InlineKeyboardMarkup(current_keyboard))
+        return
+
+    # 7. منوی حذف بازیکن
     if data.startswith("kick_menu_"):
         manageable_players = {}
         for p_id, p_name in room["players"].items():
@@ -236,7 +339,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         return
 
-    # 5. عملیات حذف یا آزاد کردن بازیکن خاص
+    # 8. عملیات حذف یا آزاد کردن بازیکن خاص
     if data.startswith("kick_") and not data.startswith("kick_menu_"):
         parts = data.split("_")
         target_id = None
@@ -280,7 +383,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer()
         return
 
-    # 6. حالت بدون زمان
+    # 9. حالت بدون زمان
     if data.startswith("time_none_"):
         room["timer"] = "بدون زمان"
         await query.answer("حالت بدون زمان انتخاب شد.", show_alert=True)
@@ -288,7 +391,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_edit_message(query, context, text, reply_markup)
         return
 
-    # 7. منوی انتخاب زمان‌دار
+    # 10. منوی انتخاب زمان‌دار
     if data.startswith("time_select_"):
         time_keyboard = [
             [
@@ -305,7 +408,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         return
 
-    # 8. تنظیم زمان خاص
+    # 11. تنظیم زمان خاص
     if data.startswith("settime_"):
         parts = data.split("_")
         minutes = parts[1]
@@ -315,7 +418,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_edit_message(query, context, text, reply_markup)
         return
 
-    # 9. بازگشت به منوی اصلی
+    # 12. بازگشت به منوی اصلی
     if data.startswith("back_menu_"):
         text, reply_markup = get_full_menu(room)
         await safe_edit_message(query, context, text, reply_markup)
