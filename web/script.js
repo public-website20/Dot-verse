@@ -1,5 +1,5 @@
 /* ==========================================
-   DotVerse - Complete Production Game Logic (script.js)
+   DotVerse - Complete Production Game Logic (script.js) - Fixed & Optimized
    ========================================== */
 
 const firebaseConfig = {
@@ -55,6 +55,7 @@ class GameTimerManager {
     start(onTimeout) {
         this.stop();
         if (!gameStartedByHost) return;
+        
         boardState.turnTimer = 20;
         updateTimerUI();
         updateUI();
@@ -172,10 +173,12 @@ function loadGameDataFromFirebase() {
             if (data.creatorId) {
                 boardState.creatorId = String(data.creatorId);
             }
+            if (data.currentTurnIndex !== undefined) {
+                boardState.currentTurnIndex = data.currentTurnIndex;
+            }
             if (data.players) {
                 let rawPlayers = Object.values(data.players);
                 
-                // مرتب‌سازی برای اینکه سازنده همیشه بالاترین جایگاه را داشته باشد
                 rawPlayers.sort((a, b) => {
                     if (String(a.id) === String(boardState.creatorId)) return -1;
                     if (String(b.id) === String(boardState.creatorId)) return 1;
@@ -195,18 +198,25 @@ function loadGameDataFromFirebase() {
             } else {
                 boardState.players = [];
             }
+
             if (data.gameStartedByHost !== undefined) {
+                const wasStarted = gameStartedByHost;
                 gameStartedByHost = data.gameStartedByHost;
                 boardState.gameStarted = gameStartedByHost;
-                if (gameStartedByHost && !timerManager.intervalId) {
+                
+                if (gameStartedByHost && !wasStarted && !timerManager.intervalId) {
                     startTurnTimer();
                 }
             }
             if (data.lines) {
                 boardState.lines = data.lines;
+            } else {
+                boardState.lines = {};
             }
             if (data.squares) {
                 boardState.squares = data.squares;
+            } else {
+                boardState.squares = [];
             }
         } else {
             boardState.players = [];
@@ -380,8 +390,19 @@ function handleLineClick(lineId, lineElement, type) {
         showFloatingAlert('بازی هنوز توسط سازنده شروع نشده است!', 1500);
         return;
     }
+
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    const currentUserId = tgUser ? String(tgUser.id) : null;
     const currentPlayer = boardState.players[boardState.currentTurnIndex];
+
     if (!currentPlayer || currentPlayer.isEliminated) return;
+
+    // بررسی اینکه آیا نوبت بازیکن فعلی است یا خیر
+    if (currentUserId && currentUserId !== currentPlayer.id) {
+        showFloatingAlert('نوبت شما نیست!', 1500);
+        return;
+    }
+
     if (boardState.lines[lineId]) return;
 
     boardState.lines[lineId] = {
@@ -395,20 +416,21 @@ function handleLineClick(lineId, lineElement, type) {
     const newSquaresCount = checkForCompletedSquares(currentPlayer, lineId);
     const hasBonusTurn = newSquaresCount > 0;
 
+    if (!hasBonusTurn) {
+        timerManager.switchToNextValidPlayer();
+    }
+
     const urlParams = new URLSearchParams(window.location.search);
     const chatId = urlParams.get('chat_id') || 'default_room';
+    
     db.ref(`rooms/${chatId}`).update({
         lines: boardState.lines,
         squares: boardState.squares,
-        players: boardState.players
+        players: boardState.players,
+        currentTurnIndex: boardState.currentTurnIndex
     });
 
-    if (!hasBonusTurn) {
-        timerManager.switchToNextValidPlayer();
-        startTurnTimer();
-    } else {
-        startTurnTimer();
-    }
+    startTurnTimer();
     updateUI();
     checkGameWinnerCondition();
 }
@@ -529,6 +551,14 @@ function handlePlayerTimeout() {
     showFloatingAlert(`${currentPlayer.name} از بازی حذف شد`, 2000);
 
     timerManager.switchToNextValidPlayer();
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const chatId = urlParams.get('chat_id') || 'default_room';
+    db.ref(`rooms/${chatId}`).update({
+        players: boardState.players,
+        currentTurnIndex: boardState.currentTurnIndex
+    });
+
     startTurnTimer();
     updateUI();
     checkGameWinnerCondition();
@@ -580,7 +610,6 @@ function updateUI() {
 
     listContainer.innerHTML = '';
 
-    // دکمه شروع بازی در بالای لیست (فقط برای سازنده نمایش داده می‌شود)
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const currentUserId = tgUser ? String(tgUser.id) : null;
     const isUserCreator = currentUserId && boardState.creatorId && currentUserId === String(boardState.creatorId);
@@ -619,7 +648,7 @@ function updateUI() {
 
     sortedDisplayPlayers.forEach((player) => {
         const originalIdx = boardState.players.findIndex(p => String(p.id) === String(player.id));
-        const isCurrent = originalIdx === boardState.currentTurnIndex && gameStartedByHost && !player.isEliminated;
+        const isCurrent = originalIdx === boardState.currentTurnIndex && gameStartedByBlockCheck() && !player.isEliminated;
         
         const item = document.createElement('div');
         item.className = `player-item ${isCurrent && gameStartedByHost ? 'active-turn' : ''} ${player.isEliminated ? 'eliminated-player' : ''}`;
@@ -657,6 +686,10 @@ function updateUI() {
     });
 }
 
+function gameStartedByBlockCheck() {
+    return gameStartedByHost;
+}
+
 function setupDrawer() {
     const menuToggle = document.getElementById('menu-toggle');
     const drawer = document.getElementById('side-drawer');
@@ -692,6 +725,7 @@ function setupDrawer() {
     }
 
     if (overlay) {
+        overlay.classList.remove('active'); // اصلاح وضعیت اولیه لایه تاریک
         overlay.addEventListener('click', (e) => {
             e.stopPropagation();
             closeDrawer();
