@@ -1,5 +1,5 @@
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InlineQueryResultArticle, InputTextMessageContent
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, InlineQueryResultArticle, InputTextMessageContent, WebAppInfo, MenuButtonWebApp
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, InlineQueryHandler
 from config import TELEGRAM_TOKEN
 
@@ -19,7 +19,7 @@ ALLOWED_USERS = [
 rooms_data = {}
 
 def get_full_menu(room):
-    """تولید منوی کامل لابی با قرار گرفتن ساخت بازی در بالاترین نقطه"""
+    """تولید منوی کامل لابی (بدون دکمه مینی‌اپ در منوی شیشه‌ای)"""
     players_lines = []
     for p_id, p_name in room["players"].items():
         if p_id == room["creator"]:
@@ -44,7 +44,7 @@ def get_full_menu(room):
     room_id = room["room_id"]
     keyboard = []
 
-    # ۱. دکمه ساخت بازی (ریست) در بالاترین نقطه قرار گرفت
+    # ۱. دکمه ساخت بازی (ریست)
     keyboard.append([InlineKeyboardButton("🛠 ساخت بازی (ریست)", callback_data=f"create_game_{room_id}")])
 
     # ۲. اگر ثبت‌نام هنوز باز است، دکمه پیوستن و اتمام ورود را نمایش بده
@@ -66,6 +66,23 @@ def get_full_menu(room):
     keyboard.append([InlineKeyboardButton("🚪 بستن ربات", callback_data=f"close_bot_{room_id}")])
 
     return text, InlineKeyboardMarkup(keyboard)
+
+async def update_webapp_menu_button(context: ContextTypes.DEFAULT_TYPE, chat_id: int, room: dict):
+    """آپدیت کردن دکمه منوی ربات (کنار چت) بر اساس وضعیت انتخاب ابعاد صفحه"""
+    try:
+        board_size = room.get("board_size", "انتخاب نشده")
+        if board_size != "انتخاب نشده":
+            # اگر ابعاد انتخاب شده، دکمه منو فعال و لینک‌دار شود
+            webapp_url = f"https://public-website20.github.io/Dot-verse/?room={room['room_id']}&size={board_size}"
+            await context.bot.set_chat_menu_button(
+                chat_id=chat_id,
+                menu_button=MenuButtonWebApp(text="ورود به بازی", web_app=WebAppInfo(url=webapp_url))
+            )
+        else:
+            # تا قبل از انتخاب ابعاد، دکمه منو غیرفعال یا به حالت پیش‌فرض و قفل باشد
+            await context.bot.set_chat_menu_button(chat_id=chat_id)
+    except Exception as e:
+        logger.error(f"خطا در تنظیم دکمه منوی مینی‌اپ: {e}")
 
 async def safe_edit_message(query, context, text, reply_markup=None):
     """تابع کمکی ایمن برای ویرایش پیام در حالت‌های چت معمولی و اینلاین"""
@@ -100,8 +117,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     room = rooms_data[room_id]
-    text, reply_markup = get_full_menu(room)
+    
+    # غیرفعال کردن دکمه منو در شروع کار
+    await update_webapp_menu_button(context, chat_id, room)
 
+    text, reply_markup = get_full_menu(room)
     await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
 
 async def inline_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -159,6 +179,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     data = query.data
+    chat_id = query.message.chat.id if query.message else None
     
     room_id = ""
     for r_id in sorted(rooms_data.keys(), key=len, reverse=True):
@@ -201,6 +222,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 2. بستن ربات
     if data.startswith("close_bot_"):
         try:
+            if chat_id:
+                await context.bot.set_chat_menu_button(chat_id=chat_id)
             if query.message:
                 await query.message.delete()
             elif query.inline_message_id:
@@ -222,6 +245,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         room["banned_ids"] = set()
         room["registration_closed"] = False
         room["board_size"] = "انتخاب نشده"
+        
+        if chat_id:
+            await update_webapp_menu_button(context, chat_id, room)
+            
         await query.answer("لابی بازنشانی و ریست شد.", show_alert=True)
         
         text, reply_markup = get_full_menu(room)
@@ -292,22 +319,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         return
 
-    # 6. ثبت ابعاد انتخاب شده و ضمیمه کردن لینک مینی‌اپ با پارامتر ابعاد و لابی
+    # 6. ثبت ابعاد انتخاب شده و فعال‌سازی دکمه منوی ربات برای ورود به مینی‌اپ
     if data.startswith("setsize_"):
         parts = data.split("_")
         size = parts[1]
         room["board_size"] = size
-        await query.answer(f"ابعاد صفحه روی {size} تنظیم شد.", show_alert=True)
+        
+        # فعال‌سازی دکمه مینی‌اپ در منوی ربات پس از تعیین ابعاد
+        if chat_id:
+            await update_webapp_menu_button(context, chat_id, room)
+
+        await query.answer(f"ابعاد صفحه روی {size} تنظیم شد و دکمه ورود به بازی فعال گردید.", show_alert=True)
         
         text, reply_markup = get_full_menu(room)
-        
-        webapp_url = f"https://public-website20.github.io/Dot-verse/?room={room_id}&size={size}"
-        
-        current_keyboard = list(reply_markup.inline_keyboard)
-        # قرار دادن دکمه ورود به مینی‌اپ در بالاترین بخش پس از انتخاب ابعاد
-        current_keyboard.insert(0, [InlineKeyboardButton("🚀ورود به بازی", url=webapp_url)])
-        
-        await safe_edit_message(query, context, text, InlineKeyboardMarkup(current_keyboard))
+        await safe_edit_message(query, context, text, reply_markup)
         return
 
     # 7. منوی حذف بازیکن
