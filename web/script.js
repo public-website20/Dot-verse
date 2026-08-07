@@ -725,7 +725,7 @@ function setupDrawer() {
     }
 
     if (overlay) {
-        overlay.classList.remove('active'); // اصلاح وضعیت اولیه لایه تاریک
+        overlay.classList.remove('active');
         overlay.addEventListener('click', (e) => {
             e.stopPropagation();
             closeDrawer();

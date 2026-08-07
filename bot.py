@@ -62,6 +62,10 @@ def get_full_menu(room):
         InlineKeyboardButton("⏱ زمان‌دار", callback_data=f"time_select_{room_id}")
     ])
     
+    # 🌟 اضافه کردن دکمه ورود به پیوی (مخصوص حالت اینلاین برای دوستان) جهت فعالسازی دکمه مینی‌اپ در پیوی آن‌ها
+    # (یوزرنیم ربات خودتان را جایگزین bot_username کنید)
+    keyboard.append([InlineKeyboardButton("🚀 ورود به پیوی ربات (بازی)", url=f"https://t.me/BotFather?start={room_id}")])
+
     # دکمه بستن ربات در انتهای منو
     keyboard.append([InlineKeyboardButton("🚪 بستن ربات", callback_data=f"close_bot_{room_id}")])
 
@@ -79,7 +83,7 @@ async def update_webapp_menu_button(context: ContextTypes.DEFAULT_TYPE, chat_id:
                 menu_button=MenuButtonWebApp(text="ورود به بازی", web_app=WebAppInfo(url=webapp_url))
             )
         else:
-            # تا قبل از انتخاب ابعاد، دکمه منو غیرفعال یا به حالت پیش‌فرض و قفل باشد
+            # تا قبل از انتخاب ابعاد، دکمه منو غیرفعال یا به حالت پیش‌فرض باشد
             await context.bot.set_chat_menu_button(chat_id=chat_id)
     except Exception as e:
         logger.error(f"خطا در تنظیم دکمه منوی مینی‌اپ: {e}")
@@ -101,6 +105,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.effective_chat.id
+    args = context.args
+
+    # اگر کاربر از طریق لینک عمیق (Deep Linking) از پیام اینلاین وارد پیوی شده باشد
+    if args:
+        room_id = args[0]
+        # اگر اتاق از قبل وجود داشته باشد، کاربر به آن متصل می‌شود
+        if room_id in rooms_data:
+            room = rooms_data[room_id]
+            # تنظیم دکمه منوی مینی‌اپ برای این کاربر در پیوی خودش
+            await update_webapp_menu_button(context, chat_id, room)
+            await update.message.reply_text(
+                "✅ به پیوی ربات خوش آمدید!\n"
+                "دکمه **ورود به بازی** در کنار کادر پیام شما (بخش Menu) فعال شد. می‌توانید وارد مینی‌اپ شوید.",
+                parse_mode="Markdown"
+            )
+            return
+
+    # حالت عادی استارت (ایجاد اتاق جدید در پیوی)
     room_id = f"room_{chat_id}_{update.effective_message.message_id}"
     user_display_name = user.full_name if (user.first_name or user.last_name) else (user.username or f"کاربر {user.id}")
 
@@ -325,7 +347,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         size = parts[1]
         room["board_size"] = size
         
-        # فعال‌سازی دکمه مینی‌اپ در منوی ربات پس از تعیین ابعاد
+        # فعال‌سازی دکمه مینی‌اپ در منوی ربات پس از تعیین ابعاد برای سازنده
         if chat_id:
             await update_webapp_menu_button(context, chat_id, room)
 
@@ -439,6 +461,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         minutes = parts[1]
         room["timer"] = f"{minutes} دقیقه"
         await query.answer(f"زمان بازی روی {minutes} دقیقه تنظیم شد.", show_alert=True)
+        text, reply_mov = get_full_menu(room)
         text, reply_markup = get_full_menu(room)
         await safe_edit_message(query, context, text, reply_markup)
         return
